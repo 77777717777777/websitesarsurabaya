@@ -1438,29 +1438,44 @@ function renderInstansiRows(){
 }
 
 /* ---- Mini map picker ---- */
+/* ---- Mini map picker (Leaflet asli) ---- */
 function initAdminMapPicker(){
   const el = $('admin-map-picker'); if (!el) return;
-  el.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 800 400" preserveAspectRatio="xMidYMid meet" style="cursor:crosshair;" onclick="onAdminMapPick(event)">${mapBaseSVG()}<g id="admin-map-marker"></g></svg><div class="map-note">Klik peta untuk isi koordinat</div>`;
+  const entry = getOrCreateLeafletMap('admin-map-picker');
+  entry.map.invalidateSize();
+  entry.markersLayer.clearLayers();
+
+  entry.map.off('click', onAdminMapClick);
+  entry.map.on('click', onAdminMapClick);
+
+  let note = el.querySelector('.map-note');
+  if (!note){ note = document.createElement('div'); note.className = 'map-note'; el.appendChild(note); }
+  note.textContent = 'Klik peta (atau geser pin) untuk isi koordinat';
+
   const latVal = parseFloat($('admin-f-lat').value), lonVal = parseFloat($('admin-f-lon').value);
   if (!isNaN(latVal) && !isNaN(lonVal)){
-    const g = geoToPct(latVal, lonVal);
-    if (g) placeAdminMapMarker(g.x, g.y);
+    placeAdminMapMarker(latVal, lonVal, {pan:true});
   }
 }
-function placeAdminMapMarker(xPct, yPct){
-  const marker = $('admin-map-marker'); if (!marker) return;
-  const [px,py] = pt(Math.max(0,Math.min(100,xPct)), Math.max(0,Math.min(100,yPct)));
-  marker.innerHTML = `<circle cx="${px}" cy="${py}" r="7" fill="#FF7A1A" fill-opacity=".28"/><circle cx="${px}" cy="${py}" r="4.5" fill="#FF7A1A" stroke="#0A0605" stroke-width="1.4"/>`;
+function placeAdminMapMarker(lat, lon, opts){
+  opts = opts || {};
+  const entry = getOrCreateLeafletMap('admin-map-picker');
+  entry.markersLayer.clearLayers();
+  const icon = L.divIcon({ className:'leaflet-pos-marker', html:'<div class="lp-dot"></div>', iconSize:[16,16], iconAnchor:[8,8] });
+  L.marker([lat, lon], {icon, draggable:true, zIndexOffset:700})
+    .on('dragend', function(e){
+      const pos = e.target.getLatLng();
+      $('admin-f-lat').value = pos.lat.toFixed(6);
+      $('admin-f-lon').value = pos.lng.toFixed(6);
+    })
+    .addTo(entry.markersLayer);
+  if (opts.pan) entry.map.panTo([lat, lon]);
 }
-function onAdminMapPick(evt){
-  const svg = evt.currentTarget;
-  const rect = svg.getBoundingClientRect();
-  const xPct = ((evt.clientX - rect.left) / rect.width) * 100;
-  const yPct = ((evt.clientY - rect.top) / rect.height) * 100;
-  const { lat, lon } = pctToGeo(xPct, yPct);
+function onAdminMapClick(e){
+  const { lat, lng } = e.latlng;
   $('admin-f-lat').value = lat.toFixed(6);
-  $('admin-f-lon').value = lon.toFixed(6);
-  placeAdminMapMarker(xPct, yPct);
+  $('admin-f-lon').value = lng.toFixed(6);
+  placeAdminMapMarker(lat, lng);
 }
 
 let editingOpId = null;
