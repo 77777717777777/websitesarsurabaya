@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>geospasial.sarsurabaya.id : Dashboard Operasi SAR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://unpkg.com/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js"></script>
+<style>
+  :root{
+    /* ===== Base: pure black canvas ===== */
+    --bg-0:#050505; --bg-1:#0A0808; --bg-2:#120D0A; --bg-3:#1A120C;
+
+    /* ===== Orange spectrum: strong -> low, this IS the palette ===== */
+    --o-100:#FF7A1A; --o-90:#FF6A0F; --o-80:#F0590A; --o-70:#E0500E; --o-60:#C9470F;
+    --o-50:#A63D12; --o-40:#7A3012; --o-30:#4F2312; --o-20:#2E1810; --o-10:#1A100B;
+    --glow:rgba(255,122,26,.5);
+
+    /* ===== Glass surfaces ===== */
+    --glass:rgba(28,20,14,.42); --glass-hi:rgba(40,26,16,.55); --glass-brd:rgba(255,138,54,.16); --glass-brd-hi:rgba(255,138,54,.34);
+    --line:rgba(255,138,54,.12); --line-hi:rgba(255,138,54,.28);
+
+    /* ===== Text ===== */
+    --text-hi:#FFE7CF; --text-mid:#E3B08C; --text-low:#B98354; --text-faint:#8A5A38;
+
+    /* ===== Status (kept warm, orange-family leaning) ===== */
+    --safe:#5FBE7A; --warn:#F0B34E; --danger:#FF5A4A;
+
+    --r:10px; --r-lg:16px;
+    --sans:'Inter',-apple-system,'Segoe UI',sans-serif;
+    --mono:'JetBrains Mono','SFMono-Regular',Consolas,monospace;
+    --display:'Space Grotesk',var(--sans);
+
+    --blur:18px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; color:var(--text-hi); font-family:var(--sans); -webkit-font-smoothing:antialiased; font-size:13px;
+    background:
+      radial-gradient(ellipse 900px 600px at 12% 8%, rgba(255,106,20,.20), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 88% 15%, rgba(240,89,10,.14), transparent 55%),
+      radial-gradient(ellipse 1000px 700px at 50% 105%, rgba(200,71,15,.16), transparent 60%),
+      linear-gradient(180deg, #060404 0%, #0A0706 45%, #050403 100%);
+    background-attachment:fixed;
+  }
+  button,select,input,textarea{font-family:inherit;}
+  ::-webkit-scrollbar{width:8px; height:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--line-hi); border-radius:4px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+
+  .app{display:flex; height:100vh; overflow:hidden;}
+
+  /* ===================== SIDEBAR (glass) ===================== */
+  aside{
+    width:226px; flex-shrink:0; display:flex; flex-direction:column;
+    background:linear-gradient(180deg, rgba(26,18,12,.55), rgba(14,10,8,.65));
+    backdrop-filter:blur(var(--blur)); -webkit-backdrop-filter:blur(var(--blur));
+    border-right:1px solid var(--glass-brd);
+  }
+  .brand{display:flex; align-items:center; gap:11px; padding:20px 16px; border-bottom:1px solid var(--line);}
+  .brand .mark{
+    width:38px; height:38px; border-radius:50%; flex-shrink:0; overflow:hidden;
+    box-shadow:0 6px 16px rgba(0,0,0,.4);
+  }
+  .brand .mark img{width:100%; height:100%; object-fit:contain;}
+  .brand h1{font-family:var(--display); font-weight:700; font-size:13.5px; margin:0; letter-spacing:.04em;}
+  .brand .url{font-family:var(--mono); font-size:10px; color:var(--text-mid); margin-top:2px;}  nav{flex:1; padding:16px 10px 0; overflow-y:auto;}
+  .nav-eyebrow{font-family:var(--display); font-size:9px; font-weight:600; letter-spacing:.1em; color:var(--text-faint); text-transform:uppercase; padding:0 10px; margin-bottom:8px;}
+  .nav-item{display:flex; align-items:center; gap:10px; width:100%; padding:9px 10px; border-radius:var(--r); background:transparent; border:none; cursor:pointer; color:var(--text-mid); font-size:12.5px; text-align:left; margin-bottom:3px; transition:background .15s, color .15s;}
+  .nav-item svg{opacity:.65; flex-shrink:0; width:15px; height:15px;}
+  .nav-item:hover{color:var(--text-hi); background:rgba(255,122,26,.08);}
+  .nav-item.active{
+    color:var(--text-hi); font-weight:600;
+    background:linear-gradient(90deg, rgba(255,106,15,.22), rgba(255,106,15,.04));
+    box-shadow:inset 2px 0 0 var(--o-90), 0 0 16px rgba(255,90,10,.12);
+  }
+  .nav-item.active svg{opacity:1; color:var(--o-90);}
+  .sidebar-foot{padding:14px 16px; border-top:1px solid var(--line);}
+  .sys-status{display:flex; align-items:center; gap:9px;}
+  .sys-status .sq{width:7px; height:7px; border-radius:50%; background:var(--safe); flex-shrink:0; box-shadow:0 0 0 3px rgba(95,190,122,.15);}
+  .sys-status .lbl{font-size:9.5px; color:var(--safe); font-weight:700; letter-spacing:.05em; font-family:var(--display);}
+  .sys-status .sub{font-size:9px; color:var(--text-faint); font-family:var(--mono); margin-top:2px;}
+
+  /* ===================== MAIN ===================== */
+  .main{flex:1; display:flex; flex-direction:column; overflow:hidden;}
+  .topbar{
+    height:58px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 24px;
+    background:rgba(18,13,10,.4); backdrop-filter:blur(var(--blur)); -webkit-backdrop-filter:blur(var(--blur));
+    border-bottom:1px solid var(--glass-brd);
+    position:relative;
+    z-index:300;
+  }
+  .topbar h2{font-family:var(--display); font-size:15px; font-weight:600; margin:0;}
+  .topbar .date{font-size:10.5px; color:var(--text-faint); margin-left:12px;}
+  .btn-ghost{
+    display:flex; align-items:center; gap:8px; background:transparent; color:var(--text-hi); border:1px solid var(--glass-brd);
+    border-radius:var(--r); padding:6px 13px; font-size:11.5px; font-weight:600; cursor:default; transition:border-color .15s, background .15s;
+  }
+  .btn-ghost.clickable{cursor:pointer;}
+  .btn-ghost.clickable:hover{border-color:var(--o-70); background:rgba(255,106,15,.08);}
+
+  .datetime-chip{padding:6px 14px;}
+  .datetime-chip .dt-text{display:flex; flex-direction:column; align-items:flex-start; line-height:1.32;}
+  .datetime-chip .dt-time{font-family:var(--mono); font-size:12.5px; font-weight:700; color:var(--o-100); letter-spacing:.03em;}
+  .datetime-chip .dt-date{font-family:var(--sans); font-size:9.5px; color:var(--text-low); margin-top:1px;}
+  .topbar-right{display:flex; align-items:center; gap:10px;}
+
+  .export-wrap{position:relative;}
+  .btn-export{ padding:6px 13px; }
+  .btn-export svg{width:13px; height:13px; color:var(--o-90);}
+  .export-panel{
+    position:absolute; top:calc(100% + 6px); right:0; z-index:500; padding:6px; min-width:170px; display:none;
+    background:rgba(22,16,11,.97); backdrop-filter:blur(24px); border:1px solid var(--glass-brd-hi); border-radius:var(--r-lg);
+    box-shadow:0 20px 44px rgba(0,0,0,.6);
+  }
+  .export-panel.open{display:block;}
+  .export-opt{display:flex; align-items:center; gap:9px; padding:8px 9px; border-radius:7px; cursor:pointer; font-size:11.5px; color:var(--text-mid);}
+  .export-opt:hover{background:rgba(255,106,15,.12); color:var(--text-hi);}
+  .export-opt svg{width:14px; height:14px; color:var(--o-80); flex-shrink:0;}
+
+  .btn-login{ padding:5px 14px 5px 6px; }
+  .btn-login.is-logged-in{ padding:6px; }
+  .btn-login .avatar{
+    width:24px; height:24px; border-radius:50%; background:rgba(255,106,15,.14); border:1px solid var(--glass-brd-hi);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .btn-login .avatar svg{width:13px; height:13px; color:var(--o-90);}
+  .btn-login .txt{font-size:11.5px; font-weight:600; color:var(--text-hi);}
+  .btn-login.is-logged-in .txt{display:none;}
+
+  .filterbar{
+    min-height:54px; flex-shrink:0; display:flex; align-items:center; gap:8px; padding:10px 24px; flex-wrap:wrap;
+    background:rgba(10,8,6,.3); backdrop-filter:blur(calc(var(--blur) - 6px)); border-bottom:1px solid var(--glass-brd);
+    position:relative; z-index:200;
+  }
+  .filterbar .flabel{font-size:9.5px; color:var(--text-faint); font-family:var(--display); letter-spacing:.06em; text-transform:uppercase; margin-right:2px;}
+
+  .msfilter{position:relative; z-index:201;}
+  .ms-btn{
+    background:var(--glass); color:var(--text-hi); border:1px solid var(--glass-brd); border-radius:var(--r); padding:7px 12px; font-size:11.5px; cursor:pointer; display:flex; align-items:center; gap:7px; transition:border-color .15s, background .15s;
+    backdrop-filter:blur(8px);
+  }
+  .ms-btn:hover{border-color:var(--o-70); background:rgba(255,106,15,.09);}
+  .ms-btn .chev{font-size:8px; color:var(--text-faint); margin-left:1px;}
+  .ms-panel{
+    position:absolute; top:calc(100% + 6px); left:0; z-index:500; padding:6px; min-width:150px; max-height:280px; display:none;
+    background:rgba(22,16,11,.97); backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
+    border:1px solid var(--glass-brd-hi); border-radius:var(--r-lg);
+    box-shadow:0 20px 44px rgba(0,0,0,.6), 0 0 0 1px rgba(255,122,26,.08);
+  }
+  .ms-panel.open{display:flex; flex-direction:column;}
+  .ms-list{overflow-y:auto; min-height:0;}
+  .ms-opt{display:flex; align-items:center; gap:8px; padding:7px 7px; border-radius:7px; cursor:pointer; font-size:11.5px; color:var(--text-mid);}
+  .ms-opt:hover{background:rgba(255,106,15,.12); color:var(--text-hi);}
+  .ms-opt input{accent-color:var(--o-90);}
+  .ms-opt .sw{width:8px; height:8px; border-radius:2px; flex-shrink:0;}
+  .ms-actions{
+    display:flex; justify-content:space-between; padding:6px 7px 2px; border-top:1px solid var(--line); margin-top:5px; flex-shrink:0;
+    position:sticky; bottom:0; background:rgba(22,16,11,.97);
+  }
+  .ms-actions button{background:transparent; border:none; color:var(--o-90); font-size:10px; cursor:pointer; font-weight:600; font-family:var(--display); letter-spacing:.02em;}
+  .spacer{flex:1;}
+
+  main.content{flex:1; overflow-y:auto; padding:20px 24px 48px; position:relative; z-index:1;}
+  .page{display:none; flex-direction:column; gap:14px;}
+  .page.active{display:flex; animation:fade .3s ease;}
+  @keyframes fade{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);}}
+
+  .kpi-row{display:grid; grid-template-columns:repeat(5,1fr); gap:12px; position:relative; z-index:1;}
+  .kpi{
+    position:relative; overflow:hidden;
+    background:linear-gradient(155deg, var(--glass-hi), var(--glass));
+    backdrop-filter:blur(var(--blur)); -webkit-backdrop-filter:blur(var(--blur));
+    border:1px solid var(--glass-brd); border-radius:var(--r-lg); padding:16px 17px;
+    box-shadow:0 8px 28px rgba(0,0,0,.35);
+  }
+  .kpi::before{
+    content:''; position:absolute; top:-40%; right:-30%; width:140px; height:140px; border-radius:50%;
+    background:radial-gradient(circle, rgba(255,122,26,.16), transparent 70%); pointer-events:none;
+  }
+  .kpi .top{display:flex; align-items:center; justify-content:space-between; margin-bottom:11px; position:relative;}
+  .kpi .lbl{font-size:9.5px; color:var(--text-hi); text-transform:uppercase; letter-spacing:.06em; font-family:var(--display); font-weight:600; display:flex; align-items:center; gap:6px;}
+  .kpi .lbl svg{color:var(--o-70); width:13px; height:13px;}
+  .kpi .val{font-family:var(--mono); font-size:25px; font-weight:600; color:var(--text-hi); line-height:1; position:relative;}
+  .kpi .sub{font-size:10px; color:var(--text-hi); margin-top:6px; position:relative;}
+
+  .grid-2{display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:stretch;}
+  .grid-2.wide-left{grid-template-columns:2.1fr 1fr;}
+  .grid-3{display:grid; grid-template-columns:repeat(3,1fr); gap:12px;}
+  .grid-347{display:grid; grid-template-columns:2fr 4fr 4fr; gap:12px; align-items:stretch;} 
+  .grid-2.wide-left { align-items: stretch; }
+  .grid-2.wide-left .card { min-height: 0; }
+  .grid-2.wide-left .card-body { min-height: 0; }
+  #map-beranda { min-height: 0; }
+  @media (max-width:1100px){ .grid-347{grid-template-columns:1fr;} }
+  .card{
+    background:linear-gradient(160deg, var(--glass-hi), var(--glass));
+    backdrop-filter:blur(var(--blur)); -webkit-backdrop-filter:blur(var(--blur));
+    border:1px solid var(--glass-brd); border-radius:var(--r-lg); overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 8px 28px rgba(0,0,0,.3);
+  }
+  .card .card-head{padding:14px 17px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;}
+  .card .card-head h3{font-family:var(--display); font-size:12px; font-weight:600; margin:0; letter-spacing:.01em;}
+  .card .card-head .sub{font-size:10.5px; color:var(--text-low);}
+  .card .card-body{padding:17px; flex:1;}
+  .card .card-body.pad-sm{padding:8px 17px;}
+
+  .legend-row{display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--line); font-size:11px;}
+  .legend-row:last-child{border-bottom:none;}
+  .legend-row .l{display:flex; align-items:center; gap:8px; color:var(--text-mid);}
+  .legend-row .sw{width:8px; height:8px; border-radius:2px; flex-shrink:0;}
+  .legend-row .v{font-family:var(--mono); font-weight:600; color:var(--text-hi);}
+
+  .insight{border-left:2px solid var(--line-hi); padding:6px 0 6px 12px; margin-bottom:12px;}
+  .insight:last-child{margin-bottom:0;}
+  .insight.crit{border-color:var(--danger);} .insight.pos{border-color:var(--safe);} .insight.info{border-color:var(--o-90);}
+  .insight .tag{font-size:9px; font-weight:700; letter-spacing:.07em; margin-bottom:5px; font-family:var(--display); text-transform:uppercase;}
+  .insight.crit .tag{color:var(--danger);} .insight.pos .tag{color:var(--safe);} .insight.info .tag{color:var(--o-90);}
+  .insight .txt{font-size:11.5px; color:var(--text-mid); line-height:1.65;}
+
+  .alert-card{
+    position:relative; overflow:hidden; border-radius:var(--r-lg); padding:17px 19px; display:flex; gap:13px; align-items:flex-start;
+    background:linear-gradient(120deg, rgba(255,106,15,.14), rgba(20,14,10,.5) 55%);
+    backdrop-filter:blur(var(--blur));
+    border:1px solid var(--glass-brd-hi);
+    box-shadow:0 8px 30px rgba(255,90,10,.1);
+  }
+  .alert-card .ic{
+    width:32px; height:32px; border-radius:var(--r); flex-shrink:0; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(135deg, var(--o-90), var(--o-50));
+    box-shadow:0 0 20px rgba(255,106,15,.4);
+  }
+  .alert-card .ic svg{width:16px; height:16px; color:#FFF3E8;}
+  .alert-card .tag{font-size:9.5px; font-weight:700; letter-spacing:.07em; color:var(--o-100); font-family:var(--display); margin-bottom:5px; text-transform:uppercase;}
+  .alert-card .txt{font-size:12px; color:var(--text-hi); line-height:1.65;}
+
+  /* ===================== MAP ===================== */
+  .map-wrap{
+    position:relative; width:100%; border-radius:var(--r); overflow:hidden; flex:1; min-height:200px;
+    background:radial-gradient(ellipse at 50% 50%, #0F0906, #050302);
+    border:1px solid var(--glass-brd);
+  }
+  .map-legend{
+    position:absolute; z-index:800; bottom:11px; left:11px; padding:8px 10px; max-width:185px; border-radius:var(--r);
+    background:rgba(14,10,7,.85); backdrop-filter:blur(12px); border:1px solid var(--glass-brd);
+  }
+  .map-legend .row{display:flex; align-items:center; gap:6px; font-size:7px; color:var(--text-mid); margin-bottom:4px;}
+  .map-legend .row:last-child{margin-bottom:0;}
+  .map-legend .sw{width:8px; height:8px; border-radius:2px; flex-shrink:0;}
+  .map-legend .grad-scale{display:flex; align-items:center; gap:7px; font-size:9.5px; color:var(--text-faint); margin-top:7px; padding-top:7px; border-top:1px solid var(--line);}
+  .map-legend .grad-scale .bar{width:70px; height:6px; border-radius:3px; background:linear-gradient(90deg, #FFE066, #FFB020, #FF7A1A, #D6480F, #7A2E0E);}
+  .map-note{
+    display:none;
+    position:absolute; z-index:800; top:9px; right:9px; padding:4px 9px; border-radius:var(--r);
+    background:rgba(14,10,7,.82); border:1px solid var(--glass-brd); font-size:8.5px; color:var(--text-faint); font-family:var(--mono); letter-spacing:.03em;
+  }
+  .hotspot{
+    position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; cursor:pointer; z-index:6;
+    background:transparent; transition:background .15s;
+  }
+  .hotspot:hover{ background:rgba(255,180,90,.14); }
+  .map-tip{
+    position:absolute; z-index:20; display:none; transform:translate(-50%,-100%); margin-top:-10px;
+    padding:9px 12px; min-width:150px; border-radius:10px; pointer-events:none;
+    background:rgba(16,11,8,.97); border:1px solid var(--glass-brd-hi);
+    box-shadow:0 14px 34px rgba(0,0,0,.55), 0 0 0 1px rgba(255,122,26,.08);
+  }
+  .map-tip .mt-lbl{font-size:8px; font-weight:700; letter-spacing:.08em; color:var(--o-90); font-family:var(--display); text-transform:uppercase;}
+  .map-tip .mt-name{font-size:12.5px; font-weight:700; color:var(--text-hi); margin-top:3px;}
+  .map-tip .mt-row{display:flex; align-items:center; justify-content:space-between; gap:14px; margin-top:6px; padding-top:6px; border-top:1px solid var(--line); font-size:10px; color:var(--text-low);}
+  .map-tip .mt-row b{font-family:var(--mono); color:var(--text-hi); font-size:11.5px;}
+
+  .map-maximize-btn{
+    position:absolute; top:9px; right:9px; z-index:800; width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+    background:rgba(14,10,7,.82); border:1px solid var(--glass-brd-hi); cursor:pointer; transition:background .15s, border-color .15s;
+  }
+  .map-maximize-btn:hover{background:rgba(255,106,15,.18); border-color:var(--o-80);}
+  .map-maximize-btn svg{width:14px; height:14px; color:var(--o-90);}
+
+  /* ===================== LEAFLET (peta asli) ===================== */
+  .leaflet-container{
+    background:radial-gradient(ellipse at 50% 50%, #0F0906, #050302) !important;
+    font-family:var(--sans); z-index:1;
+  }
+  .leaflet-control-attribution{
+    background:rgba(14,10,7,.75) !important; color:var(--text-faint) !important; font-size:8.5px !important;
+    border-radius:var(--r) 0 0 0 !important; padding:1px 6px !important;
+  }
+  .leaflet-control-attribution a{color:var(--text-low) !important;}
+  .leaflet-control-zoom a{
+    background:rgba(14,10,7,.85) !important; color:var(--o-90) !important; border-color:var(--glass-brd) !important;
+  }
+  .leaflet-control-zoom a:hover{background:rgba(255,106,15,.18) !important;}
+  .leaflet-pos-marker{background:transparent; border:none;}
+  .leaflet-pos-marker .lp-dot{
+    width:16px; height:16px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #FFC98A, #FF7A1A 55%, #A63D12 100%);
+    border:1.5px solid rgba(255,214,170,.7); box-shadow:0 0 0 5px rgba(255,122,26,.22);
+  }
+  .leaflet-tooltip.sar-pos-tooltip{
+    background:rgba(16,11,8,.95); border:1px solid var(--glass-brd-hi); color:var(--text-hi); font-size:10.5px;
+    border-radius:6px; padding:4px 8px;
+  }
+  .leaflet-tooltip.sar-pos-tooltip::before{border-top-color:rgba(16,11,8,.95);}
+
+  .map-fullscreen-overlay{
+    position:fixed; inset:0; z-index:900; display:none; flex-direction:column;
+    background:linear-gradient(180deg, #060404 0%, #0A0706 45%, #050403 100%);
+  }
+  .map-fullscreen-overlay.open{display:flex;}
+  .mf-topbar{
+    height:56px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; padding:0 20px;
+    background:rgba(18,13,10,.55); backdrop-filter:blur(var(--blur)); border-bottom:1px solid var(--glass-brd);
+  }
+  .mf-topbar .mf-title{display:flex; align-items:center; gap:10px;}
+  .mf-topbar .mf-title h2{font-family:var(--display); font-size:14px; font-weight:600; margin:0;}
+  .mf-topbar .mf-title .badge{font-family:var(--mono); font-size:9px; color:var(--o-90); background:rgba(255,106,15,.12); border:1px solid var(--glass-brd-hi); padding:3px 8px; border-radius:6px; letter-spacing:.04em;}
+  .btn-close-fs{
+    display:flex; align-items:center; justify-content:center; background:rgba(255,90,74,.14); color:#FF9086; border:1px solid rgba(255,90,74,.4);
+    border-radius:50%; width:32px; height:32px; cursor:pointer; transition:background .15s; flex-shrink:0;
+  }
+  .btn-close-fs:hover{background:rgba(255,90,74,.24);}
+  .btn-close-fs svg{width:15px; height:15px;}
+  .mf-body{flex:1; position:relative; overflow:hidden;}
+  .mf-map-wrap{position:absolute; inset:0;}
+
+  .mf-floating-controls{
+    position:absolute; top:16px; left:16px; z-index:30; display:flex; flex-direction:column; gap:10px; max-width:220px;
+  }
+  .mf-panel{
+    background:rgba(18,13,10,.85); backdrop-filter:blur(20px); border:1px solid var(--glass-brd-hi); border-radius:var(--r-lg);
+    padding:10px; box-shadow:0 14px 34px rgba(0,0,0,.5);
+  }
+  .mf-panel .mf-panel-title{font-family:var(--display); font-size:9px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--text-faint); margin-bottom:8px;}
+  .mf-layer-opt{display:flex; align-items:center; gap:8px; padding:6px 7px; border-radius:7px; cursor:pointer; font-size:11px; color:var(--text-mid); margin-bottom:2px;}
+  .mf-layer-opt:hover{background:rgba(255,106,15,.1);}
+  .mf-layer-opt.active{background:rgba(255,106,15,.18); color:var(--text-hi); font-weight:600;}
+  .mf-layer-opt input{accent-color:var(--o-90);}
+  .mf-month-select{width:100%; background:var(--glass); color:var(--text-hi); border:1px solid var(--glass-brd); border-radius:8px; padding:6px 8px; font-size:11px;}
+
+  .mf-legend{
+    position:absolute; bottom:16px; left:16px; z-index:30; padding:11px 13px; border-radius:var(--r-lg); max-width:220px;
+    background:rgba(18,13,10,.85); backdrop-filter:blur(20px); border:1px solid var(--glass-brd-hi); box-shadow:0 14px 34px rgba(0,0,0,.5);
+  }
+  .mf-legend .row{display:flex; align-items:center; gap:7px; font-size:9.5px; color:var(--text-mid); margin-bottom:5px;}
+  .mf-legend .row:last-child{margin-bottom:0;}
+  .mf-legend .sw{width:9px; height:9px; border-radius:2px; flex-shrink:0;}
+
+  .map-popup{
+    position:absolute; z-index:40; display:none; width:230px; border-radius:var(--r-lg); overflow:hidden;
+    background:rgba(18,13,10,.96); backdrop-filter:blur(22px); border:1px solid var(--glass-brd-hi);
+    box-shadow:0 20px 44px rgba(0,0,0,.6), 0 0 0 1px rgba(255,122,26,.08);
+  }
+  .map-popup.open{display:block;}
+  .map-popup .mp-head, .sar-leaflet-popup .mp-head{padding:11px 13px; border-bottom:1px solid var(--line); display:flex; align-items:flex-start; justify-content:space-between; gap:8px;}
+  .map-popup .mp-head .mp-cat, .sar-leaflet-popup .mp-head .mp-cat{font-family:var(--display); font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--o-90); margin-bottom:3px;}
+  .map-popup .mp-head .mp-title, .sar-leaflet-popup .mp-head .mp-title{font-size:12.5px; font-weight:700; color:var(--text-hi);}
+  .map-popup .mp-close{background:none; border:none; color:var(--text-faint); cursor:pointer; font-size:15px; line-height:1; padding:2px;}
+  .map-popup .mp-close:hover{color:var(--text-hi);}
+  .map-popup .mp-body, .sar-leaflet-popup .mp-body{padding:10px 13px; display:flex; flex-direction:column; gap:7px;}
+  .map-popup .mp-row, .sar-leaflet-popup .mp-row{display:flex; align-items:center; justify-content:space-between; font-size:10.5px; color:var(--text-low);}
+  .map-popup .mp-row b, .sar-leaflet-popup .mp-row b{color:var(--text-hi); font-family:var(--mono); font-weight:600; font-size:11px;}
+  .map-popup .mp-status, .sar-leaflet-popup .mp-status{display:inline-flex; align-items:center; gap:5px; font-size:9.5px; font-weight:700; padding:3px 8px; border-radius:6px; width:fit-content;}
+
+  /* Leaflet popup outer wrapper reskinned to match .map-popup */
+  .leaflet-popup.sar-leaflet-popup .leaflet-popup-content-wrapper{
+    background:rgba(18,13,10,.96); backdrop-filter:blur(22px); border:1px solid var(--glass-brd-hi);
+    border-radius:var(--r-lg); box-shadow:0 20px 44px rgba(0,0,0,.6), 0 0 0 1px rgba(255,122,26,.08);
+    padding:0; color:var(--text-hi);
+  }
+  .leaflet-popup.sar-leaflet-popup .leaflet-popup-content{margin:0; width:230px !important;}
+  .leaflet-popup.sar-leaflet-popup .leaflet-popup-tip-container{display:none;}
+  .leaflet-popup.sar-leaflet-popup a.leaflet-popup-close-button{
+    color:var(--text-faint) !important; top:9px !important; right:9px !important; font-size:16px !important;
+  }
+  .leaflet-popup.sar-leaflet-popup a.leaflet-popup-close-button:hover{color:var(--text-hi) !important;}
+
+  .chart-filter-toggle{display:flex; gap:4px; margin-left:auto;}
+  .chart-filter-toggle button{
+    background:var(--glass); border:1px solid var(--glass-brd); color:var(--text-low); font-size:9.5px; font-weight:600; padding:4px 9px;
+    border-radius:7px; cursor:pointer; font-family:var(--display); letter-spacing:.02em;
+  }
+  .chart-filter-toggle button.active{background:rgba(255,106,15,.2); border-color:var(--o-80); color:var(--o-100);}
+
+  /* ===================== RANK LIST ===================== */
+  .rank-list{display:flex; flex-direction:column;}
+  .rank-item{display:flex; align-items:center; gap:13px; padding:12px 4px; border-bottom:1px solid var(--line);}
+  .rank-item:last-child{border-bottom:none;}
+  .rank-item .no{font-family:var(--mono); font-size:11px; color:var(--text-faint); width:20px; flex-shrink:0;}
+  .rank-item .info{flex:1; min-width:0;}
+  .rank-item .info .kab{font-size:12.5px; font-weight:600; color:var(--text-hi);}
+  .rank-item .info .pos{font-size:10px; color:var(--text-low); margin-top:2px;}
+  .rank-item .metric{width:170px; flex-shrink:0;}
+  .rank-item .metric .n{font-family:var(--mono); font-size:14px; font-weight:700; color:var(--o-90); text-shadow:0 0 10px rgba(255,106,15,.3);}
+  .rank-item .metric .bar-bg{background:rgba(255,138,54,.1); height:4px; border-radius:3px; margin-top:6px; overflow:hidden;}
+  .rank-item .metric .bar-fg{background:linear-gradient(90deg, var(--o-100), var(--o-60)); height:100%;}
+  .rank-item .rek{width:320px; flex-shrink:0; font-size:10.5px; color:var(--text-low); line-height:1.55;}
+  @media (max-width:1200px){ .rank-item .rek{display:none;} }
+
+  .chart-box{height:230px;} .chart-box.tall{height:250px;} .chart-box.short{height:160px; display:flex; justify-content:center;} .chart-box.med{height:180px;}
+
+  .stat-card{
+    background:linear-gradient(155deg, var(--glass-hi), var(--glass));
+    backdrop-filter:blur(var(--blur)); border:1px solid var(--glass-brd); border-radius:var(--r-lg); padding:16px 18px; display:flex; align-items:center; gap:13px;
+  }
+  .stat-card .n{font-family:var(--mono); font-size:25px; font-weight:600; color:var(--text-hi); line-height:1;}
+  .stat-card .meta .l{font-size:9.5px; color:var(--text-hi); text-transform:uppercase; letter-spacing:.06em; font-family:var(--display); font-weight:600;}
+  .stat-card .meta .u{font-size:10px; color:var(--text-hi); margin-top:2px;}
+  .footnote{font-size:10.5px; color:var(--text-faint); line-height:1.75; padding:8px 2px;}
+  .footnote b{color:var(--text-mid);}
+
+  .empty-state{
+    display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:10px;
+    padding:34px 20px; color:var(--text-low);
+  }
+  .empty-state .ic-wrap{
+    width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+    background:rgba(255,106,15,.08); border:1px solid var(--glass-brd);
+  }
+  .empty-state .ic-wrap svg{width:20px; height:20px; color:var(--o-70);}
+  .empty-state .es-title{font-family:var(--display); font-size:12px; font-weight:600; color:var(--text-mid);}
+  .empty-state .es-sub{font-size:10.5px; color:var(--text-faint); max-width:260px; line-height:1.6;}
+
+  .duration-info{display:flex; gap:12px; flex-wrap:wrap;}
+  .duration-chip{
+    flex:1; min-width:150px; display:flex; align-items:center; gap:11px; padding:13px 15px; border-radius:var(--r-lg);
+    background:linear-gradient(155deg, var(--glass-hi), var(--glass)); border:1px solid var(--glass-brd);
+  }
+
+  @media (max-width:1100px){ .grid-2, .grid-2.wide-left, .grid-3, .kpi-row{grid-template-columns:1fr;} }
+
+  button:focus-visible, input:focus-visible{outline:2px solid var(--o-90); outline-offset:1px;}
+
+  .zone-priority-density .map-wrap{ height: 420px; max-height: 420px; flex: none; }
+  @media (max-width:1100px){ .zone-priority-density .map-wrap{ height: 320px; max-height: 320px; } }
+  .map-legend.zone-priority-density-legend{max-width:210px; padding:10px 13px;}
+  .zdl-badge{
+    width:19px; height:19px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    background:rgba(10,8,6,.82); border:1.2px solid rgba(200,255,190,.4); color:#EAF5E2;
+    font-family:var(--mono); font-size:8px; font-weight:700; box-shadow:0 0 6px rgba(95,190,122,.3);
+  }
+  .zone-priority-gb-bar{width:96px; height:9px; border-radius:5px; flex-shrink:0;
+    background:linear-gradient(90deg, #E4F5D6, #A8DE9C, #5FBE7A, #4C93B0, #3572B8, #274E9E);
+  }
+  .zone-priority-scale-numbers{display:flex; justify-content:space-between; width:96px; margin:6px 0 0 40px; font-family:var(--mono); font-size:8.5px; color:var(--text-faint);}
+
+  .prediction-map{ height: 420px; max-height: 420px; flex: none; }
+  @media (max-width:1100px){ .prediction-map{ height: 340px; max-height: 340px; } }
+  .prediction-grad-bar{width:96px; height:9px; border-radius:5px; flex-shrink:0; background:linear-gradient(90deg, #5FBE7A, #D6C446, #E68C28, #C44A1A);}
+
+  /* ===================== AUTH & ADMIN ===================== */
+  .nav-divider{height:1px; background:var(--line); margin:12px 10px;}
+
+  .auth-modal-overlay{
+    position:fixed; inset:0; z-index:950; display:none; align-items:center; justify-content:center;
+    background:rgba(5,3,2,.72); backdrop-filter:blur(6px);
+  }
+  .auth-modal-overlay.open{display:flex;}
+  .auth-modal-card{
+    width:360px; max-width:92vw; padding:26px 24px; border-radius:var(--r-lg);
+    background:linear-gradient(160deg, var(--glass-hi), var(--glass)); backdrop-filter:blur(var(--blur));
+    border:1px solid var(--glass-brd-hi); box-shadow:0 24px 60px rgba(0,0,0,.6);
+  }
+  .auth-modal-head{text-align:center; margin-bottom:18px;}
+  .auth-modal-head h2{font-family:var(--display); font-size:16px; font-weight:700; margin:10px 0 4px;}
+  .auth-modal-head .sub{font-size:11px; color:var(--text-low); line-height:1.5;}
+  .auth-modal-head .mark{
+    width:44px; height:44px; border-radius:var(--r); margin:0 auto; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(135deg, var(--o-90), var(--o-50)); box-shadow:0 0 0 1px rgba(255,138,54,.3), 0 6px 18px rgba(255,90,10,.35);
+  }
+  .auth-modal-head .mark svg{width:22px; height:22px; color:#FFF3E8;}
+  .auth-field{margin-bottom:14px;}
+  .auth-field label{display:block; font-size:10.5px; color:var(--text-mid); font-family:var(--display); font-weight:600; margin-bottom:6px; letter-spacing:.02em;}
+  .admin-input{
+    width:100%; background:var(--glass); color:var(--text-hi); border:1px solid var(--glass-brd); border-radius:var(--r);
+    padding:9px 11px; font-size:12px; transition:border-color .15s, background .15s;
+  }
+  .admin-input:focus{outline:none; border-color:var(--o-70); background:rgba(255,106,15,.08);}
+  .admin-input::placeholder{color:var(--text-faint);}
+  .admin-input option{background-color:var(--bg-3); color:var(--text-hi);}
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator{filter:invert(1); cursor:pointer;}
+  .auth-password-wrap{position:relative;}
+  .auth-password-wrap .admin-input{padding-right:38px;}
+  .auth-eye-btn{
+    position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer;
+    color:var(--text-faint); padding:5px; display:flex;
+  }
+  .auth-eye-btn:hover{color:var(--text-hi);}
+  .auth-eye-btn svg{width:15px; height:15px;}
+  .auth-error{font-size:11px; color:var(--danger); margin:-4px 0 12px; padding:8px 10px; background:rgba(255,90,74,.1); border:1px solid rgba(255,90,74,.3); border-radius:8px;}
+  .auth-submit-btn{
+    width:100%; background:linear-gradient(135deg, var(--o-90), var(--o-60)); color:#1A0F08; border:none; border-radius:var(--r);
+    padding:11px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:var(--display); letter-spacing:.02em; transition:opacity .15s;
+  }
+  .auth-submit-btn:hover{opacity:.9;}
+  .auth-submit-btn:disabled{opacity:.5; cursor:default;}
+  .auth-cancel-btn{
+    width:100%; background:transparent; color:var(--text-low); border:none; padding:10px; font-size:11.5px; cursor:pointer; margin-top:6px;
+  }
+  .auth-cancel-btn:hover{color:var(--text-hi);}
+  .auth-hint{text-align:center; font-size:9.5px; color:var(--text-faint); font-family:var(--mono); margin-top:14px; padding-top:12px; border-top:1px solid var(--line);}
+
+  .admin-mode-banner{
+    display:flex; align-items:center; gap:13px; padding:14px 18px; border-radius:var(--r-lg);
+    background:linear-gradient(120deg, rgba(255,106,15,.14), rgba(20,14,10,.5) 55%); border:1px solid var(--glass-brd-hi);
+  }
+  .admin-mode-banner svg{width:20px; height:20px; color:var(--o-90); flex-shrink:0;}
+  .admin-mode-banner .amb-title{font-family:var(--display); font-size:13.5px; font-weight:700; color:var(--text-hi);}
+  .admin-mode-banner .amb-sub{font-size:11px; color:var(--text-low); margin-top:2px;}
+  .admin-mode-badge{
+    margin-left:auto; font-family:var(--display); font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--o-100); background:rgba(255,106,15,.16); border:1px solid var(--glass-brd-hi); padding:4px 10px; border-radius:6px; flex-shrink:0;
+  }
+
+  .admin-section{padding:16px 0; border-bottom:1px solid var(--line);}
+  .admin-section:first-child{padding-top:2px;}
+  .admin-section:last-of-type{border-bottom:none;}
+  .admin-section-title{font-family:var(--display); font-size:11.5px; font-weight:700; color:var(--o-100); text-transform:uppercase; letter-spacing:.05em; margin-bottom:12px;}
+  .admin-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:12px 14px;}
+  @media (max-width:900px){ .admin-grid{grid-template-columns:1fr 1fr;} }
+  .admin-field label{display:block; font-size:10.5px; color:var(--text-mid); font-family:var(--display); font-weight:600; margin-bottom:6px; letter-spacing:.01em;}
+  .admin-field .req{color:var(--danger); margin-left:2px;}
+  .admin-field-wide{grid-column:span 3;}
+  @media (max-width:900px){ .admin-field-wide{grid-column:span 2;} }
+  .admin-map-label{display:block; font-size:10.5px; color:var(--text-mid); font-family:var(--display); font-weight:600; margin-bottom:8px;}
+  .admin-map-picker{height:240px;}
+
+  .admin-error-box{
+    margin-top:14px; padding:11px 14px; border-radius:var(--r); background:rgba(255,90,74,.1); border:1px solid rgba(255,90,74,.32);
+    font-size:11px; color:#FF9086; line-height:1.8;
+  }
+  .admin-form-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:20px;}
+  .admin-btn-secondary{
+    background:var(--glass); color:var(--text-mid); border:1px solid var(--glass-brd); border-radius:var(--r); padding:10px 18px;
+    font-size:12px; font-weight:600; cursor:pointer; font-family:var(--display); transition:border-color .15s, color .15s;
+  }
+  .admin-btn-secondary:hover{border-color:var(--o-70); color:var(--text-hi);}
+  .admin-btn-primary{
+    background:linear-gradient(135deg, var(--o-90), var(--o-60)); color:#1A0F08; border:none; border-radius:var(--r); padding:10px 20px;
+    font-size:12px; font-weight:700; cursor:pointer; font-family:var(--display); letter-spacing:.02em; transition:opacity .15s;
+  }
+  .admin-btn-primary:hover{opacity:.9;}
+  .admin-btn-small{
+    background:rgba(255,106,15,.12); color:var(--o-100); border:1px solid var(--glass-brd-hi); border-radius:8px; padding:7px 12px;
+    font-size:11px; font-weight:700; cursor:pointer; font-family:var(--display);
+  }
+  .admin-btn-small:hover{background:rgba(255,106,15,.2);}
+
+  .admin-confirm-card{width:400px;}
+  .admin-confirm-text{font-size:12px; color:var(--text-mid); line-height:1.7; margin:8px 0 4px;}
+
+  .admin-toast{
+    position:fixed; bottom:26px; left:50%; transform:translateX(-50%) translateY(20px); z-index:1000; opacity:0; pointer-events:none;
+    display:flex; align-items:center; gap:9px; padding:12px 20px; border-radius:var(--r-lg);
+    background:rgba(18,13,10,.97); border:1px solid rgba(95,190,122,.4); color:var(--text-hi); font-size:12px; font-weight:600;
+    box-shadow:0 16px 40px rgba(0,0,0,.5); transition:opacity .25s, transform .25s;
+  }
+  .admin-toast::before{content:''; width:8px; height:8px; border-radius:50%; background:var(--safe); flex-shrink:0;}
+  .admin-toast.show{opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto;}
+  .admin-toast.error{border-color:rgba(255,90,74,.4);}
+  .admin-toast.error::before{background:var(--danger);}
+
+  .admin-table-wrap{overflow-x:auto;}
+  .admin-table{width:100%; border-collapse:collapse; font-size:11.5px;}
+  .admin-table th{
+    text-align:left; padding:9px 12px; font-family:var(--display); font-size:9.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--text-faint); border-bottom:1px solid var(--line-hi); white-space:nowrap;
+  }
+  .admin-table td{padding:10px 12px; border-bottom:1px solid var(--line); color:var(--text-mid); white-space:nowrap;}
+  .admin-table tr:last-child td{border-bottom:none;}
+  .admin-table-action{
+    background:none; border:1px solid var(--glass-brd); color:var(--o-90); font-size:10.5px; font-weight:600; padding:4px 10px;
+    border-radius:6px; cursor:pointer; font-family:var(--display); margin-right:5px; transition:background .15s;
+  }
+  .admin-table-action:hover{background:rgba(255,106,15,.12);}
+  .admin-table-action-danger{color:#FF9086; border-color:rgba(255,90,74,.3);}
+  .admin-table-action-danger:hover{background:rgba(255,90,74,.12);}
+  .admin-status-pill{font-size:10px; font-weight:700; padding:3px 9px; border-radius:6px; white-space:nowrap;}
+  .admin-status-dilaksanakan{color:var(--safe); background:rgba(95,190,122,.14);}
+  .admin-status-tidak-dilaksanakan{color:var(--text-faint); background:rgba(138,90,56,.14);}
+  .admin-status-indicator{font-size:12px; font-weight:700; padding:8px 12px; border-radius:8px; width:fit-content;}
+  .admin-status-indicator.is-dilaksanakan{color:var(--safe); background:rgba(95,190,122,.14);}
+  .admin-status-indicator.is-tidak-dilaksanakan{color:var(--text-faint); background:rgba(138,90,56,.14);}
+
+  .admin-multi-row{display:flex; gap:10px; align-items:flex-end; padding:10px 0; border-bottom:1px solid var(--line); flex-wrap:wrap;}
+  .admin-multi-row:last-of-type{border-bottom:none;}
+  .admin-multi-row .admin-field{flex:1; min-width:120px;}
+  .admin-checkbox-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:9px;}
+  @media (max-width:900px){ .admin-checkbox-grid{grid-template-columns:1fr;} }
+  .admin-checkbox-opt{display:flex; align-items:center; gap:9px; padding:9px 11px; border-radius:var(--r); background:var(--glass); border:1px solid var(--glass-brd); cursor:pointer; font-size:11.5px; color:var(--text-mid);}
+  .admin-checkbox-opt:hover{border-color:var(--o-70);}
+  .admin-checkbox-opt input{accent-color:var(--o-90);}
+  .admin-summary-chip{display:inline-flex; align-items:center; gap:6px; font-size:10.5px; color:var(--text-mid); background:var(--glass); border:1px solid var(--glass-brd); padding:5px 10px; border-radius:7px; margin-right:6px;}
+  .admin-summary-chip b{color:var(--text-hi); font-family:var(--mono);}
+  .admin-empty-hint{font-size:10.5px; color:var(--text-faint); padding:6px 0;}
+  .admin-loading{padding:24px; text-align:center; color:var(--text-faint); font-size:11.5px;}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand">
+      <div class="mark">
+        <img src="https://sarsurabaya.id/img/LogoSAR.png" alt="Logo SAR">
+      </div>
+      <div>
+        <h1>GEOSPASIAL</h1>
+        <div class="url">SAR SURABAYA</div>
+      </div>
+    </div>
+    <nav>
+      <div class="nav-eyebrow">Navigasi</div>
+      <button class="nav-item active" data-page="beranda" onclick="goPage('beranda')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>
+        Beranda
+      </button>
+      <button class="nav-item" data-page="peta" onclick="goPage('peta')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+        Peta Sebaran
+      </button>
+      <button class="nav-item" data-page="zona" onclick="goPage('zona')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Zona Prioritas
+      </button>
+      <button class="nav-item" data-page="tren" onclick="goPage('tren')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+        Tren &amp; Statistik
+      </button>
+      <button class="nav-item" data-page="prediksi" onclick="goPage('prediksi')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+        Prediksi Sebaran Lokasi
+      </button>
+      <div class="nav-divider" id="admin-nav-divider" style="display:none;"></div>
+      <button class="nav-item" id="admin-nav-item" data-page="admin-input" onclick="goPage('admin-input')" style="display:none;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        Input Data Operasi
+      </button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="sys-status">
+        <div class="sq"></div>
+        <div><div class="lbl">SISTEM AKTIF</div><div class="sub">BASARNAS KELAS A, SURABAYA</div></div>
+      </div>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:baseline;">
+        <h2 id="page-title">Beranda</h2>
+      </div>
+      <div class="topbar-right">
+        <div class="btn-ghost datetime-chip" id="time-chip" title="Waktu saat ini">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="color:var(--o-90); flex-shrink:0;"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>
+          <div class="dt-text">
+            <div class="dt-time" id="time-str">00:00:00</div>
+            <div class="dt-date" id="date-str2">-</div>
+          </div>
+        </div>
+        <div class="export-wrap">
+          <button class="btn-ghost clickable btn-export" onclick="toggleExportPanel()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export
+          </button>
+          <div class="export-panel" id="export-panel">
+            <div class="export-opt" onclick="doExport('csv')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>Export as CSV</div>
+            <div class="export-opt" onclick="doExport('xlsx')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>Export as XLSX</div>
+            <div class="export-opt" onclick="doExport('image')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Export as Image</div>
+          </div>
+        </div>
+        <div class="admin-auth-wrap" style="position:relative;">
+          <button class="btn-ghost clickable btn-login" id="btn-login" onclick="onLoginBtnClick()">
+            <span class="avatar"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zM12 14c-5 0-9 2.5-9 6v2h18v-2c0-3.5-4-6-9-6z"/></svg></span>
+            <span class="txt" id="login-txt">Login</span>
+            <span class="chev" id="login-chev" style="display:none; font-size:8px; color:var(--text-faint); margin-left:2px;">▾</span>
+          </button>
+          <div class="export-panel" id="admin-menu-panel">
+            <div class="export-opt" id="admin-menu-name" style="color:var(--text-faint); cursor:default;"></div>
+            <div class="export-opt" onclick="doLogout()">Logout</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="filterbar">
+      <span class="flabel">Filter</span>
+      <div class="msfilter">
+        <button class="ms-btn" onclick="toggleMS('tahun')"><span id="btn-tahun-text">Tahun</span><span class="chev">▾</span></button>
+        <div class="ms-panel" id="panel-tahun"></div>
+      </div>
+      <div class="msfilter">
+        <button class="ms-btn" onclick="toggleMS('bulan')">Bulan <span class="chev">▾</span></button>
+        <div class="ms-panel" id="panel-bulan"></div>
+      </div>
+      <div class="msfilter">
+        <button class="ms-btn" onclick="toggleMS('kategori')">Kategori <span class="chev">▾</span></button>
+        <div class="ms-panel" id="panel-kategori"></div>
+      </div>
+      <div class="msfilter">
+        <button class="ms-btn" onclick="toggleMS('pos')">Pos / Unit Siaga <span class="chev">▾</span></button>
+        <div class="ms-panel" id="panel-pos"></div>
+      </div>
+      <div class="spacer"></div>
+    </div>
+    <main class="content">
+      <!-- ================= BERANDA ================= -->
+      <section class="page active" id="page-beranda">
+        <div class="kpi-row" id="kpi-row"></div>
+        <div class="grid-2 wide-left">
+          <div class="card">
+            <div class="card-head">
+              <h3>Peta Kepadatan Kejadian (Zona Rawan)</h3>
+            </div>
+            <div class="card-body">
+              <div class="map-wrap" id="map-beranda">
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Komposisi Kejadian</h3><span class="sub">sesuai filter aktif</span></div>
+            <div class="card-body">
+              <div class="chart-box short"><canvas id="chartDonutBeranda"></canvas></div>
+              <div id="legend-beranda" style="margin-top:10px;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>Beban Kerja Pos / Unit SAR</h3><span class="sub">jumlah operasi ditangani, periode terpilih</span></div>
+            <div class="card-body"><div class="chart-box"><canvas id="chartBebanPos"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>Tren Kejadian Bulanan</h3><span class="sub">total lintas kategori, tahun terpilih</span>
+            </div>
+            <div class="card-body"><div class="chart-box"><canvas id="chartTrenBeranda"></canvas></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Insight Otomatis</h3><span class="sub">sistem analisis SAR</span></div>
+          <div class="card-body" id="insight-panel"></div>
+        </div>
+        <div class="footnote" id="footnote-beranda"></div>
+      </section>
+      <!-- ================= PETA ================= -->
+      <section class="page" id="page-peta">
+        <div class="card">
+          <div class="card-head"><h3>Peta Sebaran Kejadian SAR</h3><span class="sub">Jawa Timur, titik kejadian per kategori dan wilayah cakupan pos SAR</span></div>
+          <div class="card-body">
+            <div class="map-wrap" id="map-peta" style="height:440px;">
+              <button class="map-maximize-btn" onclick="openMapFullscreen('peta')" title="Perbesar peta ke layar penuh">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="grid-3" id="peta-stats"></div>
+        <div class="footnote">Peta menggunakan proyeksi geografis asli (OpenStreetMap/CARTO) — posisi titik kejadian sesuai koordinat lat/lon riil di database.</div>
+      </section>
+      <!-- ================= TREN ================= -->
+      <section class="page" id="page-tren">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>Tren Bulanan per Kategori</h3><span class="sub">tahun terpilih</span></div>
+            <div class="card-body"><div class="chart-box tall"><canvas id="chartTrenKategori"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Perbandingan Total Kejadian Antar Tahun</h3><span class="sub" id="yoy-sub"></span></div>
+            <div class="card-body"><div class="chart-box tall"><canvas id="chartYoY"></canvas></div></div>
+          </div>
+        </div>
+        <div class="grid-3">
+          <div class="card">
+            <div class="card-head"><h3>Waktu Kejadian</h3><span class="sub">pola jam kejadian terjadi, periode terpilih</span></div>
+            <div class="card-body"><div class="chart-box med"><canvas id="chartJam"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Waktu Dilaporkan</h3><span class="sub">pola jam laporan diterima, periode terpilih</span></div>
+            <div class="card-body"><div class="chart-box med"><canvas id="chartJamLapor"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Rentang Waktu</h3><span class="sub">dihitung dari kejadian sampai dilaporkan</span></div>
+            <div class="card-body"><div class="chart-box med"><canvas id="chartRentangLapor"></canvas></div></div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>Rentang Waktu Operasi</h3><span class="sub">dari keberangkatan sampai operasi selesai (standar maksimal 7 hari)</span></div>
+            <div class="card-body"><div class="chart-box"><canvas id="chartDurasiOperasi"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Waktu Tempuh &amp; Durasi Operasi per Kategori</h3><span class="sub">perbandingan rata-rata waktu tempuh (menit) dan durasi pelaksanaan (hari)</span></div>
+            <div class="card-body"><div class="chart-box"><canvas id="chartTempuhDurasi"></canvas></div></div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>Top 5 Klasifikasi Kecelakaan Paling Sering</h3><span class="sub" id="top-klasifikasi-sub">seluruh kategori</span></div>
+            <div class="card-body"><div class="chart-box"><canvas id="chartTopKlasifikasi"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Status Hasil Operasi</h3><span class="sub">selamat / meninggal / hilang</span></div>
+            <div class="card-body" style="display:flex; flex-direction:column; gap:14px;">
+              <div style="display:flex; align-items:center; gap:16px;">
+                <div class="chart-box short" style="flex:0 0 auto; width:150px;"><canvas id="chartStatus"></canvas></div>
+                <div id="legend-hasil" style="flex:1; min-width:0;"></div>
+              </div>
+              <div class="sub" style="border-top:1px solid var(--line); padding-top:10px; display:flex; flex-direction:column; gap:4px; font-size:9.5px;">
+                <div><b>Hidup</b>: korban ditemukan dalam keadaan selamat</div>
+                <div><b>Meninggal Dunia</b>: korban ditemukan tidak selamat</div>
+                <div><b>Hilang / Tidak Ditemukan</b>: operasi ditutup namun korban belum ditemukan</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="footnote">* Data tahun berjalan masih parsial (belum genap 12 bulan).</div>
+      </section>
+      <!-- ================= ZONA ================= -->
+      <section class="page" id="page-zona">
+        <div class="card zone-priority-density">
+          <div class="card-head" style="flex-direction: column; align-items: flex-start; gap: 4px;">
+            <h3>Peta Jangkauan Layanan</h3>
+            <span class="sub">titik kejadian ditautkan ke pos/unit siaga terdekat (kategori dominan per kelompok wilayah)</span>
+          </div>
+          <div class="card-body"><div class="map-wrap" id="map-buffer"></div></div>
+        </div>
+        <div class="card zone-priority-density">
+          <div class="card-head" style="flex-direction:column; align-items:flex-start; gap:4px;">
+            <h3>Peta Jarak Temu</h3>
+            <span class="sub">perbandingan Titik Kejadian (LKK) vs Titik Ditemukan, jarak sesuai data operasi</span>
+          </div>
+          <div class="card-body">
+            <div class="map-wrap" id="map-jaraktemu">
+              <button class="map-maximize-btn" onclick="openMapFullscreen('jaraktemu')" title="Perbesar peta ke layar penuh">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Peringkat Kabupaten/Kota Rawan</h3><span class="sub">diurutkan berdasarkan total kejadian pada filter aktif</span></div>
+          <div class="card-body pad-sm"><div class="rank-list" id="zona-list"></div></div>
+        </div>
+      </section>
+      <!-- ================= PREDIKSI ================= -->
+      <section class="page" id="page-prediksi">
+        <div class="card">
+          <div class="card-head" style="flex-direction:column; align-items:flex-start; gap:4px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; flex-wrap:wrap;">
+              <h3>Prediksi Penyebaran Lokasi Kejadian Kecelakaan</h3>
+              <div class="msfilter">
+                <button class="ms-btn" onclick="toggleMS('periode-prediksi')"><span id="btn-periode-prediksi-text">Periode Prediksi</span><span class="chev">▾</span></button>
+                <div class="ms-panel" id="panel-periode-prediksi"></div>
+              </div>
+            </div>
+            <span class="sub">proyeksi 3 bulan ke depan dihitung dari tren pertumbuhan data historis riil &mdash; bukan sekadar total angka operasi</span>
+          </div>
+          <div class="card-body" style="display:flex; flex-direction:column; gap:14px;">
+            <div class="map-wrap prediction-map" id="map-prediksi-spasial" style="height:420px;"></div>
+          </div>
+        </div>
+        <div class="grid-2 wide-left">
+          <div class="card">
+            <div class="card-head"><h3>Estimasi Volume Kesiapsiagaan</h3><span class="sub">tren historis + proyeksi 3 bulan ke depan (putus-putus)</span></div>
+            <div class="card-body"><div class="chart-box tall"><canvas id="chartProyeksi"></canvas></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Fokus Siaga Kategori Dominan</h3><span class="sub">antisipasi kesiapsiagaan alat &amp; personel 3 bulan ke depan</span></div>
+            <div class="card-body"><div class="chart-box tall"><canvas id="chartPrediksiKategori"></canvas></div></div>
+          </div>
+        </div>
+        <div class="alert-card" id="alert-card"></div>
+        <div class="footnote">Proyeksi dihitung dari tren pertumbuhan tahun-ke-tahun data historis riil di database dan pola bulanan tahun terakhir. Bersifat estimasi kasar, bukan model prediksi statistik final.</div>
+      </section>
+      <!-- ================= ADMIN: INPUT DATA OPERASI ================= -->
+      <section class="page" id="page-admin-input">
+        <div class="admin-mode-banner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6z"/><polyline points="9 12 11 14 15 10"/></svg>
+          <div>
+            <div class="amb-title">Input Data Operasi SAR</div>
+            <div class="amb-sub">Tambahkan dan perbarui data operasi Search and Rescue</div>
+          </div>
+          <span class="admin-mode-badge">Admin Mode</span>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3 id="admin-form-title">Form Operasi Baru</h3><span class="sub">Lengkapi data sesuai tahapan operasi yang sedang berjalan</span></div>
+          <div class="card-body admin-form-body">
+
+            <!-- A: Informasi Kejadian -->
+            <div class="admin-section">
+              <div class="admin-section-title">Informasi Kejadian</div>
+              <div class="admin-grid">
+                <div class="admin-field">
+                  <label>ID Operasi</label>
+                  <input type="text" id="admin-f-id" class="admin-input" readonly placeholder="Otomatis setelah disimpan">
+                </div>
+                <div class="admin-field">
+                  <label>Kategori Kejadian <span class="req">*</span></label>
+                  <select id="admin-f-kategori" class="admin-input"></select>
+                </div>
+                <div class="admin-field">
+                  <label>Klasifikasi</label>
+                  <select id="admin-f-klasifikasi" class="admin-input"></select>
+                </div>
+                <div class="admin-field">
+                  <label>Nama Objek Terdampak</label>
+                  <input type="text" id="admin-f-objek" class="admin-input" placeholder="Contoh: KM Fortuner">
+                </div>
+                <div class="admin-field">
+                  <label>Waktu Kejadian <span class="req">*</span></label>
+                  <input type="datetime-local" id="admin-f-waktu-kejadian" class="admin-input">
+                </div>
+                <div class="admin-field">
+                  <label>Waktu Laporan Diterima</label>
+                  <input type="datetime-local" id="admin-f-tgl-lapor" class="admin-input">
+                </div>
+                <div class="admin-field">
+                  <label>Sumber Laporan</label>
+                  <select id="admin-f-sumber" class="admin-input"></select>
+                </div>
+                <div class="admin-field">
+                  <label>Nama Pelapor</label>
+                  <input type="text" id="admin-f-nama-pelapor" class="admin-input" placeholder="Nama pelapor (data pribadi, hanya admin)">
+                </div>
+                <div class="admin-field">
+                  <label>Instansi Pelapor</label>
+                  <input type="text" id="admin-f-instansi-pelapor" class="admin-input">
+                </div>
+                <div class="admin-field">
+                  <label>No. HP Pelapor</label>
+                  <input type="text" id="admin-f-hp-pelapor" class="admin-input">
+                </div>
+                <div class="admin-field admin-field-wide">
+                  <label>Narasi / Kronologi Kejadian</label>
+                  <textarea id="admin-f-narasi" class="admin-input" rows="3" placeholder="Uraian bebas kronologi kejadian"></textarea>
+                </div>
+              </div>
+            </div>
+
+            <!-- B: Lokasi Kejadian -->
+            <div class="admin-section">
+              <div class="admin-section-title">Lokasi Kejadian (LKK)</div>
+              <div class="admin-grid">
+                <div class="admin-field admin-field-wide">
+                  <label>Deskripsi Lokasi Kejadian / LKK <span class="req">*</span></label>
+                  <input type="text" id="admin-f-lkk" class="admin-input" placeholder="Contoh: Perairan Selat Madura">
+                </div>
+                <div class="admin-field">
+                  <label>Latitude <span class="req">*</span></label>
+                  <input type="number" step="0.000001" id="admin-f-lat" class="admin-input" placeholder="-7.250000">
+                </div>
+                <div class="admin-field">
+                  <label>Longitude <span class="req">*</span></label>
+                  <input type="number" step="0.000001" id="admin-f-lon" class="admin-input" placeholder="112.750000">
+                </div>
+                <div class="admin-field">
+                  <label>Radial (derajat)</label>
+                  <input type="number" step="0.01" id="admin-f-radial" class="admin-input" placeholder="0-360">
+                </div>
+              </div>
+              <div class="admin-field-wide" style="margin-top:12px;">
+                <label class="admin-map-label">Mini Map Picker &mdash; klik pada peta untuk mengisi koordinat otomatis</label>
+                <div class="map-wrap admin-map-picker" id="admin-map-picker"></div>
+              </div>
+            </div>
+
+            <!-- C: Pos & Pelaksanaan -->
+            <div class="admin-section">
+              <div class="admin-section-title">Pos / Unit Siaga &amp; Pelaksanaan</div>
+              <div class="admin-grid">
+                <div class="admin-field">
+                  <label>Pos / Unit Siaga SAR <span class="req">*</span></label>
+                  <select id="admin-f-pos" class="admin-input"></select>
+                </div>
+                <div class="admin-field">
+                  <label>Waktu Berangkat</label>
+                  <input type="datetime-local" id="admin-f-waktu-berangkat" class="admin-input" oninput="updateStatusIndicator()">
+                </div>
+                <div class="admin-field">
+                  <label>Waktu Tiba di Lokasi</label>
+                  <input type="datetime-local" id="admin-f-waktu-tiba" class="admin-input">
+                </div>
+                <div class="admin-field">
+                  <label>Waktu Operasi Selesai</label>
+                  <input type="datetime-local" id="admin-f-waktu-selesai" class="admin-input" oninput="updateStatusIndicator()">
+                </div>
+                <div class="admin-field">
+                  <label>Waktu Siap (menit)</label>
+                  <input type="number" min="0" id="admin-f-waktu-siap" class="admin-input">
+                </div>
+                <div class="admin-field">
+                  <label>Waktu Tempuh (menit)</label>
+                  <input type="number" min="0" id="admin-f-waktu-tempuh" class="admin-input">
+                </div>
+                <div class="admin-field">
+                  <label>Jarak Laut (NM)</label>
+                  <input type="number" step="0.01" min="0" id="admin-f-jarak-laut" class="admin-input">
+                </div>
+                <div class="admin-field">
+                  <label>Jarak Darat (KM)</label>
+                  <input type="number" step="0.01" min="0" id="admin-f-jarak-darat" class="admin-input">
+                </div>
+              </div>
+            </div>
+
+            <!-- D: Data Korban -->
+            <div class="admin-section">
+              <div class="admin-section-title">Data Korban</div>
+              <div class="admin-grid">
+                <div class="admin-field">
+                  <label>POB (Person On Board)</label>
+                  <input type="number" min="0" id="admin-f-pob" class="admin-input" value="0">
+                </div>
+              </div>
+              <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+                <span class="admin-summary-chip">Selamat: <b id="admin-korban-sum-selamat">0</b></span>
+                <span class="admin-summary-chip">Meninggal Dunia: <b id="admin-korban-sum-meninggal">0</b></span>
+                <span class="admin-summary-chip">Hilang: <b id="admin-korban-sum-hilang">0</b></span>
+                <span class="admin-summary-chip" style="color:var(--text-faint);">(dihitung otomatis dari daftar korban di bawah)</span>
+              </div>
+              <div id="admin-korban-list" style="margin-top:10px;"></div>
+              <button type="button" class="admin-btn-small" style="margin-top:8px;" onclick="addKorbanRow()">+ Tambah Korban</button>
+            </div>
+
+            <!-- E: Status Operasi -->
+            <div class="admin-section">
+              <div class="admin-section-title">Status Operasi</div>
+              <div class="admin-grid">
+                <div class="admin-field">
+                  <label>Status Operasi</label>
+                  <div id="admin-status-indicator" class="admin-status-indicator"></div>
+                </div>
+                <div class="admin-field admin-field-wide">
+                  <label>Kendala Pelaksanaan</label>
+                  <textarea id="admin-f-kendala" class="admin-input" rows="2" placeholder="Kendala di lapangan, atau alasan status Tidak Dilaksanakan"></textarea>
+                </div>
+              </div>
+            </div>
+
+            <!-- F: Lokasi Ditemukan (kondisional, tampil saat Waktu Berangkat & Waktu Selesai sudah diisi) -->
+            <div class="admin-section" id="admin-section-f" style="display:none;">
+              <div class="admin-section-title">Lokasi Ditemukan</div>
+              <div class="admin-grid">
+                <div class="admin-field admin-field-wide">
+                  <label>Deskripsi Lokasi Ditemukan</label>
+                  <input type="text" id="admin-f-lokasi-ditemukan" class="admin-input" placeholder="Contoh: Dermaga 2">
+                </div>
+                <div class="admin-field">
+                  <label>Latitude Titik Ditemukan</label>
+                  <input type="number" step="0.000001" id="admin-f-lat-ditemukan" class="admin-input">
+                </div>
+                <div class="admin-field">
+                  <label>Longitude Titik Ditemukan</label>
+                  <input type="number" step="0.000001" id="admin-f-lon-ditemukan" class="admin-input">
+                </div>
+                <div class="admin-field">
+                  <label>Jarak dari LKK (km)</label>
+                  <input type="number" step="0.01" min="0" id="admin-f-jarak-lkk" class="admin-input">
+                </div>
+              </div>
+            </div>
+
+            <!-- G: Instansi Terlibat -->
+            <div class="admin-section">
+              <div class="admin-section-title">Instansi Terlibat</div>
+              <div id="admin-instansi-list"></div>
+              <button type="button" class="admin-btn-small" style="margin-top:8px;" onclick="addInstansiRow()">+ Tambah Instansi</button>
+            </div>
+
+            <!-- H: Peralatan -->
+            <div class="admin-section">
+              <div class="admin-section-title">Peralatan Digunakan</div>
+              <div class="admin-checkbox-grid" id="admin-peralatan-grid"></div>
+            </div>
+
+            <!-- I: Lain-lain -->
+            <div class="admin-section">
+              <div class="admin-section-title">Lain-lain</div>
+              <div class="admin-grid">
+                <div class="admin-field">
+                  <label>Biaya (Rp)</label>
+                  <input type="number" step="0.01" min="0" id="admin-f-biaya" class="admin-input">
+                </div>
+                <div class="admin-field admin-field-wide">
+                  <label>Catatan Lain-lain</label>
+                  <textarea id="admin-f-lain" class="admin-input" rows="2"></textarea>
+                </div>
+              </div>
+            </div>
+
+            <div class="admin-error-box" id="admin-form-error" style="display:none;"></div>
+
+            <div class="admin-form-actions">
+              <button class="admin-btn-secondary" onclick="resetAdminForm()">Batal / Form Baru</button>
+              <button class="admin-btn-primary" onclick="onSubmitAdminForm()">Simpan Data</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Data Operasi Terbaru</h3><span class="sub">operasi yang sudah diinput/diperbarui Admin</span></div>
+          <div class="card-body pad-sm">
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>ID</th><th>Tanggal</th><th>Kejadian</th><th>Lokasi</th><th>Status</th><th>Aksi</th></tr></thead>
+                <tbody id="admin-ops-tbody"><tr><td colspan="6" class="admin-loading">Memuat...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- Map full-screen overlay -->
+<div class="map-fullscreen-overlay" id="map-fullscreen-overlay">
+  <div class="mf-topbar">
+    <div class="mf-title">
+      <h2 id="mf-title-text">Peta</h2>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div id="mf-year-filter-inline" style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:9.5px; color:var(--text-hi); font-family:var(--display); letter-spacing:.06em; text-transform:uppercase;">Tahun</span>
+        <select class="mf-month-select" id="mf-year-select" onchange="onMfYearChange(this)" style="width:auto; min-width:90px;"></select>
+      </div>
+      <button class="btn-close-fs" onclick="closeMapFullscreen()" title="Keluar" aria-label="Keluar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="mf-body">
+    <div class="mf-map-wrap" id="mf-map-wrap"></div>
+    </div>
+    <div class="mf-legend" id="mf-legend"></div>
+    <div class="map-popup" id="mf-popup"></div>
+  </div>
+</div>
+
+<!-- Login modal -->
+<div class="auth-modal-overlay" id="login-modal">
+  <div class="auth-modal-card">
+    <div class="auth-modal-head">
+      <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6z"/><polyline points="9 12 11 14 15 10"/></svg></div>
+      <h2>Login Admin</h2>
+      <div class="sub">Masuk menggunakan akun dinas untuk mengakses menu Admin</div>
+    </div>
+    <div class="auth-field">
+      <label>Username</label>
+      <input type="text" id="login-username" class="admin-input" placeholder="Masukkan username">
+    </div>
+    <div class="auth-field">
+      <label>Password</label>
+      <div class="auth-password-wrap">
+        <input type="password" id="login-password" class="admin-input" placeholder="Masukkan password">
+        <button type="button" class="auth-eye-btn" onclick="togglePasswordVisibility()" title="Tampilkan/sembunyikan password">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="auth-error" id="login-error" style="display:none;">Username atau password salah.</div>
+    <button class="auth-submit-btn" id="login-submit-btn" onclick="submitLogin()">Login</button>
+    <button class="auth-cancel-btn" onclick="closeLoginModal()">Batal</button>
+    <div class="auth-hint">admin / admin123</div>
+  </div>
+</div>
+
+<!-- Confirm save modal -->
+<div class="auth-modal-overlay" id="admin-confirm-modal">
+  <div class="auth-modal-card admin-confirm-card">
+    <div class="admin-mode-banner" style="background:none; border:none; padding:0; margin-bottom:2px;">
+      <div class="amb-title" style="font-size:15px;">Konfirmasi Data</div>
+    </div>
+    <p class="admin-confirm-text">Pastikan data operasi SAR yang dimasukkan sudah benar. Data akan langsung tersimpan ke database dan memperbarui dashboard.</p>
+    <div class="admin-form-actions">
+      <button class="admin-btn-secondary" onclick="closeAdminConfirm()">Batal</button>
+      <button class="admin-btn-primary" id="admin-confirm-btn" onclick="confirmSaveAdminForm()">Ya, Simpan</button>
+    </div>
+  </div>
+</div>
+
+<div class="admin-toast" id="admin-toast">Data operasi berhasil disimpan.</div>
+
+<script src="js/api.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+<script>
+(function syncMapHeightToPieCard(){
+  const pieCard = document.querySelector('#chartDonutBeranda').closest('.card');
+  const mapCard = document.querySelector('#map-beranda').closest('.card');
+  const mapWrap = document.querySelector('#map-beranda');
+  if(!pieCard || !mapCard || !mapWrap) return;
+
+  const ro = new ResizeObserver(() => {
+    const h = pieCard.getBoundingClientRect().height;
+    mapCard.style.height = h + 'px';
+    mapWrap.style.height = (h - mapCard.querySelector('.card-head').offsetHeight - 34) + 'px'; // 34 = padding card-body (17*2)
+    // panggil invalidateSize kalau instance leaflet-nya ada
+    if (window.mapBeranda && typeof window.mapBeranda.invalidateSize === 'function') {
+      window.mapBeranda.invalidateSize();
+    }
+  });
+  ro.observe(pieCard);
+})();
+</script>
+</body>
+</html>
