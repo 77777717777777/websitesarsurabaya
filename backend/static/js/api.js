@@ -56,13 +56,12 @@ const Api = {
   statusDilaksanakan: (f) => apiRequest(`/status-dilaksanakan${qs(f)}`),
   statusHasil: (f) => apiRequest(`/status-hasil${qs(f)}`),
   trenBulanan: (f) => apiRequest(`/tren-bulanan${qs(f)}`),
-  bebanPos: (f) => apiRequest(`/beban-pos${qs(f)}`),
-  instansiTerlibat: (f) => apiRequest(`/instansi-terlibat${qs(f)}`),
+  bebanWilayah: (f) => apiRequest(`/beban-wilayah${qs(f)}`),
   sumberBerita: (f) => apiRequest(`/sumber-berita${qs(f)}`),
   waktuKejadian: (f) => apiRequest(`/waktu-kejadian${qs(f)}`),
   durasiOperasi: (f) => apiRequest(`/durasi-operasi${qs(f)}`),
   korbanAgregat: (f) => apiRequest(`/korban-agregat${qs(f)}`),
-  ref: (nama) => apiRequest(`/ref/${nama}`),
+  refNilai: (nama) => apiRequest(`/ref-nilai/${nama}`),
 
   // ---- Admin (session cookie wajib) ----
   adminLogin: (username, password) => apiRequest('/admin/login', { method: 'POST', body: { username, password }, auth: true }),

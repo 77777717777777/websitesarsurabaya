@@ -38,19 +38,22 @@ function pctToGeo(xPct, yPct){
 }
 
 /* Kelompok wilayah skematik untuk Zona Prioritas -- posisi x/y untuk tata letak visual,
-   ref[lat,lon] untuk mengelompokkan titik kejadian riil via kedekatan koordinat terdekat. */
+   ref[lat,lon] untuk mengelompokkan titik kejadian riil via kedekatan koordinat terdekat.
+   'wilayah' di sini dipetakan ke nama WILAYAH (wilayah_mapped), bukan ke record pos/unit
+   siaga dari database -- WILAYAH_REAL_COORDS di bawah menyediakan titik koordinat referensi
+   untuk digambar di peta per nama wilayah. */
 const ZONA_DEF = [
-  {kab:"Kab. Sumenep",    pos:"Unit Siaga SAR Sumenep",     x:78, y:24, ref:[-7.02,113.85]},
-  {kab:"Kota Surabaya",   pos:"KN SAR Surabaya (Pusat)",    x:40, y:40, ref:[-7.25,112.75]},
-  {kab:"Kab. Banyuwangi", pos:"Pos SAR Banyuwangi",         x:90, y:80, ref:[-8.30,114.40]},
-  {kab:"Kab. Trenggalek", pos:"Pos SAR Trenggalek",         x:15, y:82, ref:[-8.25,111.72]},
-  {kab:"Kab. Malang",     pos:"Unit Siaga SAR Malang",      x:47, y:70, ref:[-8.40,112.62]},
-  {kab:"Kab. Bojonegoro", pos:"Unit Siaga SAR Bojonegoro",  x:15, y:32, ref:[-7.15,111.90]},
-  {kab:"Kab. Lamongan",   pos:"Unit Siaga SAR Lamongan",    x:27, y:34, ref:[-6.86,112.32]},
-  {kab:"Kab. Jember",     pos:"Pos SAR Jember",             x:70, y:78, ref:[-8.30,113.70]},
-  {kab:"Kab. Pamekasan",  pos:"Unit Siaga SAR Sumenep",     x:64, y:22, ref:[-7.15,113.45]},
-  {kab:"Kab. Gresik",     pos:"KN SAR Surabaya (Pusat)",    x:33, y:34, ref:[-7.13,112.65]},
-  {kab:"Kab. Sidoarjo",   pos:"KN SAR Surabaya (Pusat)",    x:41, y:46, ref:[-7.38,112.72]},
+  {kab:"Kab. Sumenep",    wilayah:"Sumenep",     x:78, y:24, ref:[-7.02,113.85]},
+  {kab:"Kota Surabaya",   wilayah:"Surabaya",    x:40, y:40, ref:[-7.25,112.75]},
+  {kab:"Kab. Banyuwangi", wilayah:"Banyuwangi",  x:90, y:80, ref:[-8.30,114.40]},
+  {kab:"Kab. Trenggalek", wilayah:"Trenggalek",  x:15, y:82, ref:[-8.25,111.72]},
+  {kab:"Kab. Malang",     wilayah:"Malang",      x:47, y:70, ref:[-8.40,112.62]},
+  {kab:"Kab. Bojonegoro", wilayah:"Bojonegoro",  x:15, y:32, ref:[-7.15,111.90]},
+  {kab:"Kab. Lamongan",   wilayah:"Lamongan",    x:27, y:34, ref:[-6.86,112.32]},
+  {kab:"Kab. Jember",     wilayah:"Jember",      x:70, y:78, ref:[-8.30,113.70]},
+  {kab:"Kab. Pamekasan",  wilayah:"Sumenep",     x:64, y:22, ref:[-7.15,113.45]},
+  {kab:"Kab. Gresik",     wilayah:"Surabaya",    x:33, y:34, ref:[-7.13,112.65]},
+  {kab:"Kab. Sidoarjo",   wilayah:"Surabaya",    x:41, y:46, ref:[-7.38,112.72]},
 ];
 function nearestZonaIdx(lat, lon){
   let best = -1, bestD = Infinity;
@@ -71,22 +74,22 @@ function computeZonaStats(operasiRows){
     b.selamat += o.jumlah_selamat || 0;
     b.meninggal += o.jumlah_meninggal || 0;
     b.hilang += o.jumlah_hilang || 0;
-    b.catCount[o.id_kategori] = (b.catCount[o.id_kategori] || 0) + 1;
+    b.catCount[o.nama_kategori] = (b.catCount[o.nama_kategori] || 0) + 1;
   });
   buckets.forEach(b=>{
     let domCat = null, domN = -1;
-    Object.entries(b.catCount).forEach(([k,v])=>{ if (v > domN){ domN = v; domCat = parseInt(k,10); } });
-    b.dominanCatId = domCat;
+    Object.entries(b.catCount).forEach(([k,v])=>{ if (v > domN){ domN = v; domCat = k; } });
+    b.dominanCatId = domCat; // string nama kategori
   });
   return buckets.sort((a,b)=> b.kejadian - a.kejadian);
 }
 
 /* ================= STATE ================= */
-let CATS = [];       // [{id,label,color}]
-let CATMAP = {};      // id -> {label,color}
-let POS_LIST = [];    // [{id,label,status}]
-let POSMAP = {};       // id -> {label,status}
-let REF = { klasifikasi:[], sumber:[], instansi:[], peralatan:[] };
+let CATS = [];        // [{id,label,color}] -- id = nama kategori (string)
+let CATMAP = {};       // nama_kategori (string) -> {label,color}
+let WILAYAH_LIST = []; // [{id,label}] -- id = nama wilayah (string)
+let WILAYAH_MAP = {};  // nama_wilayah -> {label}
+let REF = { klasifikasi:[], sumber:[] }; // instansi & peralatan di-drop, tidak ada lagi tabel referensinya
 let YEARS_AVAILABLE = [];
 let auth = { isLoggedIn:false, username:null, nama_lengkap:null };
 let charts = {};
@@ -95,29 +98,29 @@ let predMonthIdx = null; // 0,1,2 -> 3 bulan proyeksi ke depan
 let state = {
   page: 'beranda',
   year: null,
-  activeMonths: [0,1,2,3,4,5,6,7,8,9,10,11],
-  activeCats: [],
-  activePos: [],
+  activeMonths: [1,2,3,4,5,6,7,8,9,10,11,12], // 1-12 (bulan_angka)
+  activeCats: [],     // array of string (nama_kategori)
+  activeWilayah: [],  // array of string (nama_wilayah)
 };
 
-/* Pos SAR Banyuwangi & Pos SAR Jember tidak beroperasi/tidak mengirim data untuk tahun
+/* Wilayah Banyuwangi & Jember tidak beroperasi/tidak mengirim data untuk tahun
    berjalan (2026 dan seterusnya), jadi default-nya di-uncheck untuk tahun itu -- tapi
-   tetap pos aktif biasa, dan tetap bisa dicentang manual kapan saja. Dihitung ulang
+   tetap wilayah aktif biasa, dan tetap bisa dicentang manual kapan saja. Dihitung ulang
    setiap kali filter Tahun berubah. */
-const POS_DEFAULT_EXCLUDED_LABELS = ['Pos SAR Banyuwangi', 'Pos SAR Jember'];
-function computeDefaultActivePos(year){
+const WILAYAH_DEFAULT_EXCLUDED = ['Banyuwangi', 'Jember'];
+function computeDefaultActiveWilayah(year){
   if (year >= 2026) {
-    return POS_LIST.filter(p => !POS_DEFAULT_EXCLUDED_LABELS.includes(p.label)).map(p=>p.id);
+    return WILAYAH_LIST.filter(w => !WILAYAH_DEFAULT_EXCLUDED.includes(w.label)).map(w=>w.id);
   }
-  return POS_LIST.map(p=>p.id);
+  return WILAYAH_LIST.map(w=>w.id);
 }
 
 function getActiveFilters(){
   return {
     tahun: state.year != null ? [state.year] : [],
-    bulan: state.activeMonths.map(i=>i+1),
+    bulan: state.activeMonths, // sudah 1-12, cocok dengan bulan_angka di backend
     kategori: state.activeCats,
-    pos: state.activePos,
+    wilayah: state.activeWilayah,
   };
 }
 
@@ -145,7 +148,7 @@ document.addEventListener('click', (e)=>{
 
 const EXPORT_COLUMNS = [
   ['id_operasi','ID'], ['waktu_kejadian','Waktu Kejadian'], ['nama_kategori','Kategori'], ['nama_klasifikasi','Klasifikasi'],
-  ['nama_objek_terdampak','Objek Terdampak'], ['lokasi_kejadian_deskripsi','Lokasi Kejadian'], ['nama_pos','Pos/Unit Siaga'],
+  ['lokasi_kejadian_deskripsi','Lokasi Kejadian'], ['wilayah_mapped','Wilayah'],
   ['status_operasi','Status'], ['pob','POB'], ['jumlah_selamat','Selamat'], ['jumlah_meninggal','Meninggal Dunia'], ['jumlah_hilang','Hilang'],
 ];
 
@@ -163,7 +166,7 @@ async function exportCSV(){
   const header = EXPORT_COLUMNS.map(c=>escapeCsv(c[1])).join(',');
   const lines = rows.map(r => EXPORT_COLUMNS.map(c=>escapeCsv(r[c[0]])).join(','));
   const csv = [header, ...lines].join('\r\n');
-  downloadBlob(new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8;'}), `operasi-sar-${Date.now()}.csv`);
+  downloadBlob(new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8;'}), `operasi-sar-${Date.now()}.csv`);
 }
 
 async function exportXLSX(){
@@ -255,6 +258,8 @@ function renderAuthUI(){
   const navItem = $('admin-nav-item'), navDivider = $('admin-nav-divider');
   if (navItem) navItem.style.display = auth.isLoggedIn ? 'flex' : 'none';
   if (navDivider) navDivider.style.display = auth.isLoggedIn ? 'block' : 'none';
+  const exportWrap = $('export-wrap');
+  if (exportWrap) exportWrap.style.display = auth.isLoggedIn ? 'flex' : 'none';
 }
 async function checkAuthOnLoad(){
   try {
@@ -299,25 +304,25 @@ function buildTahunPanel(){
 function onTahunToggle(el){
   state.year = parseInt(el.value, 10);
   $('btn-tahun-text').textContent = 'Tahun: ' + formatTahunLabel(state.year);
-  state.activePos = computeDefaultActivePos(state.year);
-  buildPosPanel();
+  state.activeWilayah = computeDefaultActiveWilayah(state.year);
+  buildWilayahPanel();
   $('panel-tahun').classList.remove('open');
   render();
 }
 function buildBulanPanel(){
   const items = MONTHS_FULL.map((m,i)=>`
-    <label class="ms-opt"><input type="checkbox" checked data-idx="${i}" onchange="onBulanToggle(this)">${m}</label>
+    <label class="ms-opt"><input type="checkbox" checked data-idx="${i+1}" onchange="onBulanToggle(this)">${m}</label>
   `).join('');
   $('panel-bulan').innerHTML = `<div class="ms-list">${items}</div><div class="ms-actions"><button onclick="msAllBulan(true)">Pilih Semua</button><button onclick="msAllBulan(false)">Kosongkan</button></div>`;
 }
 function onBulanToggle(el){
-  const i = parseInt(el.dataset.idx,10);
+  const i = parseInt(el.dataset.idx,10); // 1-12
   if (el.checked){ if (!state.activeMonths.includes(i)) state.activeMonths.push(i); }
   else state.activeMonths = state.activeMonths.filter(x=>x!==i);
   render();
 }
 function msAllBulan(on){
-  state.activeMonths = on ? [...Array(12).keys()] : [];
+  state.activeMonths = on ? Array.from({length:12}, (_,i)=>i+1) : [];
   document.querySelectorAll('#panel-bulan input').forEach(cb=>cb.checked=on);
   render();
 }
@@ -328,7 +333,7 @@ function buildKategoriPanel(){
   $('panel-kategori').innerHTML = `<div class="ms-list">${items}</div><div class="ms-actions"><button onclick="msAllKategori(true)">Pilih Semua</button><button onclick="msAllKategori(false)">Kosongkan</button></div>`;
 }
 function onKategoriToggle(el){
-  const k = parseInt(el.dataset.k,10);
+  const k = el.dataset.k; // string, nama kategori
   if (el.checked){ if (!state.activeCats.includes(k)) state.activeCats.push(k); }
   else state.activeCats = state.activeCats.filter(x=>x!==k);
   render();
@@ -338,24 +343,28 @@ function msAllKategori(on){
   document.querySelectorAll('#panel-kategori input').forEach(cb=>cb.checked=on);
   render();
 }
-function buildPosPanel(){
-  const items = POS_LIST.map(p=>{
-    const checked = state.activePos.includes(p.id);
-    return `<label class="ms-opt"><input type="checkbox" ${checked?'checked':''} data-p="${p.id}" onchange="onPosToggle(this)">${p.label}</label>`;
+function buildWilayahPanel(){
+  const items = WILAYAH_LIST.map(w=>{
+    const checked = state.activeWilayah.includes(w.id);
+    return `<label class="ms-opt"><input type="checkbox" ${checked?'checked':''} data-w="${w.id}" onchange="onWilayahToggle(this)">${w.label}</label>`;
   }).join('');
-  $('panel-pos').innerHTML = `<div class="ms-list">${items}</div><div class="ms-actions"><button onclick="msAllPos(true)">Pilih Semua</button><button onclick="msAllPos(false)">Kosongkan</button></div>`;
+  $('panel-pos').innerHTML = `<div class="ms-list">${items}</div><div class="ms-actions"><button onclick="msAllWilayah(true)">Pilih Semua</button><button onclick="msAllWilayah(false)">Kosongkan</button></div>`;
 }
-function onPosToggle(el){
-  const p = parseInt(el.dataset.p,10);
-  if (el.checked){ if (!state.activePos.includes(p)) state.activePos.push(p); }
-  else state.activePos = state.activePos.filter(x=>x!==p);
+function onWilayahToggle(el){
+  const w = el.dataset.w;
+  if (el.checked){ if (!state.activeWilayah.includes(w)) state.activeWilayah.push(w); }
+  else state.activeWilayah = state.activeWilayah.filter(x=>x!==w);
   render();
 }
-function msAllPos(on){
-  state.activePos = on ? POS_LIST.map(p=>p.id) : [];
-  buildPosPanel();
+function msAllWilayah(on){
+  state.activeWilayah = on ? WILAYAH_LIST.map(w=>w.id) : [];
+  buildWilayahPanel();
   render();
 }
+// Alias supaya markup HTML lama yang masih memanggil buildPosPanel/onPosToggle/msAllPos tidak langsung patah
+function buildPosPanel(){ buildWilayahPanel(); }
+function onPosToggle(el){ onWilayahToggle(el); }
+function msAllPos(on){ msAllWilayah(on); }
 
 /* ================= CHART HELPERS ================= */
 const barValueLabels = {
@@ -412,7 +421,7 @@ function renderLegendList(containerId, entries){
     <div class="legend-row"><div class="l"><span class="sw" style="background:${e.color}"></span>${e.label}</div><div class="v">${e.value != null ? e.value.toLocaleString('id-ID') : ''}</div></div>`).join('');
 }
 
-/* ================= MAP DRAWING (SVG skematik) ================= */
+/* ================= MAP DRAWING (SVG skematik, sebagian sudah legacy) ================= */
 const JAVA_MAIN_PATH = "M28,176 C34,158 52,150 66,146 C90,140 96,150 116,148 C132,146 138,134 158,132 C176,130 182,140 198,140 C214,140 218,126 238,124 C256,122 262,132 282,130 C302,128 306,116 328,114 C350,112 356,122 380,122 C402,122 408,112 432,112 C456,112 460,122 484,122 C506,122 510,114 532,116 C556,118 558,128 582,130 C606,132 610,124 632,128 C656,132 662,142 686,148 C710,154 722,148 742,158 C758,166 768,176 772,190 C776,204 768,214 754,222 C738,231 728,226 712,234 C696,242 692,254 676,262 C660,270 650,266 634,276 C618,286 614,298 598,306 C582,314 572,308 556,304 C540,300 534,290 518,292 C502,294 500,304 484,306 C468,308 462,298 446,298 C430,298 426,308 410,308 C394,308 390,298 374,296 C358,294 352,304 336,302 C320,300 318,288 302,286 C286,284 280,294 264,290 C248,286 246,274 230,268 C214,262 204,268 190,258 C176,248 176,236 162,226 C148,216 136,220 124,210 C112,200 114,188 100,182 C86,176 76,186 62,182 C50,179 40,182 28,176 Z";
 const MADURA_PATH = "M436,92 C452,80 472,74 498,72 C524,70 552,68 580,70 C604,72 624,78 640,88 C652,96 654,104 646,112 C636,120 620,118 604,122 C586,126 574,134 554,134 C534,134 524,124 504,122 C486,120 474,128 458,124 C444,120 440,112 434,104 C431,99 432,95 436,92 Z";
 const SMALL_ISLANDS = [ {cx:762, cy:220, rx:20, ry:11}, {cx:118, cy:118, rx:10, ry:6}, {cx:672, cy:96, rx:7, ry:4.5}, {cx:250, cy:96, rx:6, ry:4} ];
@@ -468,20 +477,19 @@ function hotspotLayerZona(points, tooltipId){
    dipakai bersama oleh popup SVG manual (peta skematik lama) dan marker.bindPopup() Leaflet. */
 function buildIncidentPopupHTML(o, opts){
   opts = opts || {};
-  const cat = CATMAP[o.id_kategori] || {label:'Kejadian', color:'#FF7A1A'};
+  const cat = CATMAP[o.nama_kategori] || {label:'Kejadian', color:'#FF7A1A'};
   const st = o.status_operasi || '-';
-  const stColor = st === 'Dilaksanakan' ? '#5FBE7A' : '#8A5A38';
   const tanggal = o.waktu_kejadian ? new Date(o.waktu_kejadian) : null;
   const korban = (o.jumlah_selamat||0) + (o.jumlah_meninggal||0) + (o.jumlah_hilang||0);
   const closeBtn = opts.closeHandler ? `<button class="mp-close" onclick="${opts.closeHandler}">&times;</button>` : '';
   return `
     <div class="mp-head">
-      <div><div class="mp-cat">${cat.label}</div><div class="mp-title">${o.nama_objek_terdampak || o.lokasi_kejadian_deskripsi || '-'}</div></div>
+      <div><div class="mp-cat">${cat.label}</div><div class="mp-title">${o.lokasi_kejadian_deskripsi || o.wilayah_mapped || '-'}</div></div>
       ${closeBtn}
     </div>
     <div class="mp-body">
-      <div class="mp-row"><span>Pos Penanggung Jawab</span></div>
-      <div style="font-size:11px; color:var(--text-hi); margin-top:-4px;">${o.nama_pos || '-'}</div>
+      <div class="mp-row"><span>Wilayah</span></div>
+      <div style="font-size:11px; color:var(--text-hi); margin-top:-4px;">${o.wilayah_mapped || '-'}</div>
       <div class="mp-row"><span>Tanggal Kejadian</span><b>${tanggal ? tanggal.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '-'}</b></div>
       <div class="mp-row"><span>Jumlah Korban</span><b>${korban} orang</b></div>
       <div class="mp-row"><span>Status</span><b>${st}</b></div>
@@ -503,19 +511,17 @@ function renderIncidentScatter(containerId, rows){
     const g = geoToPct(o.lokasi_kejadian_lat, o.lokasi_kejadian_lon);
     return {...o, x:g.x, y:g.y};
   });
-  const rowsById = {};
-  points.forEach((p,i)=> rowsById[i]=p);
-  const dots = points.map((p,i)=>{
+  const dots = points.map((p)=>{
     const [px,py] = pt(p.x,p.y);
-    const col = CATMAP[p.id_kategori] ? CATMAP[p.id_kategori].color : '#FF7A1A';
+    const col = CATMAP[p.nama_kategori] ? CATMAP[p.nama_kategori].color : '#FF7A1A';
     return `<circle cx="${px}" cy="${py}" r="4.2" fill="${col}" fill-opacity=".92" stroke="#0A0605" stroke-width=".8"/>`;
   }).join('');
   const hotspots = points.map((p,i)=>
     `<div class="hotspot" style="left:${p.x}%; top:${p.y}%;" onmouseenter="showIncidentTip('${containerId}', ${i})" onmouseleave="hideMapTip('tip-${containerId}')" onclick="event.stopPropagation(); openIncidentPopup('tip-${containerId}', window.__pts_${containerId.replace(/-/g,'_')}[${i}])"></div>`
   ).join('');
   window['__pts_'+containerId.replace(/-/g,'_')] = points;
-  const posMarkers = POS_LIST.filter(p=>state.activePos.includes(p.id)).map(p=>{
-    const ref = POS_REAL_COORDS[p.label]; if (!ref) return '';
+  const posMarkers = WILAYAH_LIST.filter(w=>state.activeWilayah.includes(w.id)).map(w=>{
+    const ref = WILAYAH_REAL_COORDS[w.label]; if (!ref) return '';
     const g = geoToPct(ref[0], ref[1]);
     const [px,py] = pt(g.x, g.y);
     return `<g>${posMarkerSVG(px,py,15)}</g>`;
@@ -536,79 +542,226 @@ function showIncidentTip(containerId, i){
   const p = window['__pts_'+containerId.replace(/-/g,'_')][i];
   const el = $('tip-'+containerId); if (!el) return;
   el.style.left = p.x+'%'; el.style.top = Math.max(6,p.y)+'%';
-  const cat = CATMAP[p.id_kategori] || {label:'-'};
+  const cat = CATMAP[p.nama_kategori] || {label:'-'};
   const tgl = p.waktu_kejadian ? new Date(p.waktu_kejadian).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '-';
-  el.innerHTML = `<div class="mt-lbl">${cat.label}</div><div class="mt-name">${p.nama_objek_terdampak || p.lokasi_kejadian_deskripsi || '-'}</div><div class="mt-row"><span>Tanggal</span><b>${tgl}</b></div>`;
+  el.innerHTML = `<div class="mt-lbl">${cat.label}</div><div class="mt-name">${p.lokasi_kejadian_deskripsi || p.wilayah_mapped || '-'}</div><div class="mt-row"><span>Tanggal</span><b>${tgl}</b></div>`;
   el.style.display = 'block';
 }
 
-const POS_REAL_COORDS = {
-  "KN SAR Surabaya (Pusat)": [-7.25, 112.75],
-  "Pos SAR Trenggalek": [-8.05, 111.71],
-  "Pos SAR Banyuwangi": [-8.22, 114.37],
-  "Pos SAR Jember": [-8.17, 113.70],
-  "Unit Siaga SAR Sumenep": [-7.02, 113.85],
-  "Unit Siaga SAR Malang": [-7.98, 112.63],
-  "Unit Siaga SAR Bojonegoro": [-7.15, 111.88],
-  "Unit Siaga SAR Lamongan": [-7.12, 112.42],
+/* Koordinat referensi visual per WILAYAH (pengganti POS_REAL_COORDS lama yang berbasis
+   pos/unit siaga). Dipakai untuk menggambar marker representatif di peta -- bukan
+   koordinat presisi kantor, cukup titik acuan tengah wilayah untuk tampilan skematik. */
+const WILAYAH_REAL_COORDS = {
+  "Surabaya": [-7.25, 112.75],
+  "Trenggalek": [-8.05, 111.71],
+  "Banyuwangi": [-8.22, 114.37],
+  "Jember": [-8.17, 113.70],
+  "Sumenep": [-7.02, 113.85],
+  "Malang": [-7.98, 112.63],
+  "Bojonegoro": [-7.15, 111.88],
+  "Lamongan": [-7.12, 112.42],
 };
 
-/* ================= PETA ASLI (Leaflet + CARTO Dark Matter + overlay KML) =================
+/* ================= PETA ASLI (Leaflet + basemap ganda + overlay KML + layer toggle) =================
    Tahap 1: dipakai untuk peta Beranda ('map-beranda') & mode fullscreen-nya ('mf-map-wrap').
    Peta lain (Peta Sebaran, Zona Prioritas, Prediksi, Mini Map Picker admin) MASIH pakai
    peta SVG skematik lama (mapBaseSVG dkk di bawah) sampai tahap berikutnya dikonfirmasi. */
-const LEAFLET_TILE_URL = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-const LEAFLET_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+const BASEMAPS = {
+  dark: {
+    label: 'Gelap',
+    layers: [
+      { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
+        subdomains: 'abcd', maxZoom: 19 },
+    ],
+  },
+  light: {
+    label: 'Terang',
+    layers: [
+      { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+        subdomains: 'abc', maxZoom: 19 },
+    ],
+  },
+  terrain: {
+    label: 'Satelit',
+    layers: [
+      { url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+        attribution: '&copy; Google Maps',
+        subdomains: 'abc',
+        maxZoom: 19,
+        maxNativeZoom: 19 },
+    ],
+  },
+};
+const DEFAULT_BASEMAP = 'dark';
+const LAYER_TOGGLE_DEFS = [
+  { key:'incident', label:'Operasi SAR' },
+  { key:'pos', label:'Wilayah' },
+  { key:'boundary', label:'Wilayah Operasi' },
+];
+const LAYER_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>';
 const KML_BOUNDARY_URL = '/data/wilayah-kerja-sar-surabaya-boundary.kml';
 const JATIM_CENTER = [-7.5, 112.5];
 const JATIM_ZOOM = 8;
-const _leafletMaps = {}; // containerId -> {map, markersLayer}
-let _kmlTextPromise = null; // cache -- teks KML sama dipakai ulang utk setiap instance peta, cukup 1x fetch
-
-function loadKmlBoundaryLayer(map){
-  if (!_kmlTextPromise) _kmlTextPromise = fetch(KML_BOUNDARY_URL).then(r=>r.text());
-  _kmlTextPromise.then(kmlText=>{
-    omnivore.kml.parse(kmlText)
-      .setStyle({ color: '#FF6A0F', weight: 2, dashArray: '6,6', fill: false, opacity: .85 })
-      .addTo(map);
-  }).catch(e=> console.error('Gagal memuat overlay batas wilayah KML:', e));
-}
+const _leafletMaps = {};
+let _kmlTextPromise = null;
 
 function getOrCreateLeafletMap(containerId){
   let entry = _leafletMaps[containerId];
   if (entry) return entry;
   const map = L.map(containerId, {
-    center: JATIM_CENTER, zoom: JATIM_ZOOM, minZoom: 6, maxZoom: 16,
+    center: JATIM_CENTER, zoom: JATIM_ZOOM, minZoom: 6, maxZoom: 19,
     attributionControl: true, zoomControl: true,
   });
-  L.tileLayer(LEAFLET_TILE_URL, {
-    attribution: LEAFLET_ATTRIBUTION, subdomains: 'abcd', maxZoom: 19,
-  }).addTo(map);
-  const markersLayer = L.layerGroup().addTo(map);
-  entry = { map, markersLayer };
+  const incidentLayer = L.layerGroup().addTo(map);
+  const posLayer = L.layerGroup().addTo(map);
+  const boundaryLayer = L.layerGroup().addTo(map);
+  entry = {
+    map, markersLayer: incidentLayer,
+    incidentLayer, posLayer, boundaryLayer,
+    basemap: DEFAULT_BASEMAP, tileLayers: [],
+    layerVisible: { incident:true, pos:true, boundary:true },
+  };
   _leafletMaps[containerId] = entry;
-  loadKmlBoundaryLayer(map);
+  setBasemap(containerId, DEFAULT_BASEMAP, {initial:true});
+  if (containerId !== 'admin-map-picker') addLayerControl(containerId); // mini picker admin dikecualikan
+  loadKmlBoundaryLayer(containerId);
   return entry;
+}
+
+function setBasemap(containerId, key, opts){
+  opts = opts || {};
+  const entry = _leafletMaps[containerId]; if (!entry) return;
+  const conf = BASEMAPS[key]; if (!conf) return;
+  (entry.tileLayers || []).forEach(l => entry.map.removeLayer(l));
+  entry.tileLayers = conf.layers.map(lc=>{
+    const layer = L.tileLayer(lc.url, {
+      attribution: lc.attribution, subdomains: lc.subdomains,
+      maxZoom: lc.maxZoom, maxNativeZoom: lc.maxNativeZoom,
+    }).addTo(entry.map);
+    layer.setZIndex(0);
+    return layer;
+  });
+  entry.basemap = key;
+  if (!opts.initial){
+    const panel = document.getElementById('layerpanel-'+containerId);
+    if (panel) panel.querySelectorAll('.lp-bm-opt').forEach(b=> b.classList.toggle('active', b.dataset.bm===key));
+  }
+}
+
+function addLayerControl(containerId){
+  const wrap = document.getElementById(containerId); if (!wrap) return;
+  if (wrap.querySelector('.map-layer-btn')) return;
+  const shiftClass = wrap.querySelector('.map-maximize-btn') ? ' shift-down' : '';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'map-layer-btn' + shiftClass;
+  btn.title = 'Layer & tema peta';
+  btn.innerHTML = LAYER_ICON_SVG;
+  btn.onclick = (e)=>{ e.stopPropagation(); toggleLayerPanel(containerId); };
+  wrap.appendChild(btn);
+
+  const panel = document.createElement('div');
+  panel.className = 'map-layer-panel';
+  panel.id = 'layerpanel-' + containerId;
+  panel.innerHTML = `
+    <div class="map-layer-panel-inner">
+      <div class="lp-section-title">Tampilan Dasar</div>
+      <div class="lp-basemap-row">
+        ${Object.entries(BASEMAPS).map(([key,conf])=>`
+          <div class="lp-bm-opt bm-${key} ${key===DEFAULT_BASEMAP?'active':''}" data-bm="${key}" onclick="onLayerPanelBasemap('${containerId}','${key}')">
+            <div class="sw"></div><div class="lbl">${conf.label}</div>
+          </div>`).join('')}
+      </div>
+      <div class="lp-divider"></div>
+      <div class="lp-section-title">Layer</div>
+      ${LAYER_TOGGLE_DEFS.map(d=>`
+        <label class="lp-layer-opt"><input type="checkbox" checked data-layer="${d.key}" onchange="onLayerPanelToggle('${containerId}', this)">${d.label}</label>
+      `).join('')}
+    </div>
+  `;
+  document.body.appendChild(panel);
+}
+function toggleLayerPanel(containerId){
+  document.querySelectorAll('.map-layer-panel.open').forEach(p=>{ if (p.id !== 'layerpanel-'+containerId) p.classList.remove('open'); });
+  const panel = document.getElementById('layerpanel-'+containerId);
+  const wrap = document.getElementById(containerId);
+  const btn = wrap ? wrap.querySelector('.map-layer-btn') : null;
+  if (!panel) return;
+
+  const willOpen = !panel.classList.contains('open');
+  if (!willOpen){ panel.classList.remove('open'); return; }
+  if (!btn || !wrap) return;
+
+  // Batas panel = kotak peta itu sendiri (bukan seluruh card, apalagi seluruh layar),
+  // supaya panel tidak pernah nembus keluar dari area peta yang membulat.
+  const mapRect = wrap.getBoundingClientRect();
+  const btnRect = btn.getBoundingClientRect();
+  const panelWidth = 190;
+
+  let left = btnRect.right - panelWidth;
+  left = Math.max(mapRect.left + 6, Math.min(left, mapRect.right - panelWidth - 6));
+  const top = btnRect.bottom + 6;
+
+  panel.style.left = left + 'px';
+  panel.style.top = top + 'px';
+  panel.style.maxHeight = '';
+  panel.classList.add('open');
+
+  // Kalau ruang sampai batas bawah peta tidak cukup untuk tinggi panel penuh --
+  // baru dibatasi & isinya bisa discroll. Kalau cukup (kondisi normal), dibiarkan apa adanya.
+  const availableHeight = mapRect.bottom - top - 6;
+  if (panel.offsetHeight > availableHeight){
+    panel.style.maxHeight = Math.max(80, availableHeight) + 'px';
+  }
+}
+
+document.addEventListener('click', (e)=>{
+  if (!e.target.closest('.map-layer-panel') && !e.target.closest('.map-layer-btn')){
+    document.querySelectorAll('.map-layer-panel.open').forEach(p=>p.classList.remove('open'));
+  }
+});
+function onLayerPanelBasemap(containerId, key){ setBasemap(containerId, key); }
+function onLayerPanelToggle(containerId, checkbox){
+  const entry = _leafletMaps[containerId]; if (!entry) return;
+  const key = checkbox.dataset.layer;
+  const layerMap = { incident: entry.incidentLayer, pos: entry.posLayer, boundary: entry.boundaryLayer };
+  const layer = layerMap[key]; if (!layer) return;
+  entry.layerVisible[key] = checkbox.checked;
+  if (checkbox.checked) entry.map.addLayer(layer); else entry.map.removeLayer(layer);
+}
+
+function loadKmlBoundaryLayer(containerId){
+  const entry = _leafletMaps[containerId]; if (!entry) return;
+  if (!_kmlTextPromise) _kmlTextPromise = fetch(KML_BOUNDARY_URL).then(r=>r.text());
+  _kmlTextPromise.then(kmlText=>{
+    omnivore.kml.parse(kmlText)
+      .setStyle({ color: '#FF6A0F', weight: 2, dashArray: '6,6', fill: false, opacity: .85 })
+      .addTo(entry.boundaryLayer);
+  }).catch(e=> console.error('Gagal memuat overlay batas wilayah KML:', e));
 }
 
 function renderIncidentMapLeaflet(containerId, rows, opts){
   opts = opts || {};
   const entry = getOrCreateLeafletMap(containerId);
   entry.map.invalidateSize();
-  entry.markersLayer.clearLayers();
+  entry.incidentLayer.clearLayers();
+  entry.posLayer.clearLayers();
   const points = (rows||[]).filter(o=>o.lokasi_kejadian_lat!=null && o.lokasi_kejadian_lon!=null);
   points.forEach(o=>{
-    const col = CATMAP[o.id_kategori] ? CATMAP[o.id_kategori].color : '#FF7A1A';
+    const col = CATMAP[o.nama_kategori] ? CATMAP[o.nama_kategori].color : '#FF7A1A';
     L.circleMarker([o.lokasi_kejadian_lat, o.lokasi_kejadian_lon], {
       radius: 6, color: '#0A0605', weight: 1, fillColor: col, fillOpacity: .92,
     }).bindPopup(buildIncidentPopupHTML(o), { className: 'sar-leaflet-popup', maxWidth: 230, minWidth: 230 })
-      .addTo(entry.markersLayer);
+      .addTo(entry.incidentLayer);
   });
-  POS_LIST.filter(p=>state.activePos.includes(p.id)).forEach(p=>{
-    const ref = POS_REAL_COORDS[p.label]; if (!ref) return;
+  WILAYAH_LIST.filter(w=>state.activeWilayah.includes(w.id)).forEach(w=>{
+    const ref = WILAYAH_REAL_COORDS[w.label]; if (!ref) return;
     const icon = L.divIcon({ className: 'leaflet-pos-marker', html: '<div class="lp-dot"></div>', iconSize:[16,16], iconAnchor:[8,8] });
-    L.marker(ref, {icon, zIndexOffset: 500}).bindTooltip(p.label, {direction:'top', className:'sar-pos-tooltip', offset:[0,-6]})
-      .addTo(entry.markersLayer);
+    L.marker(ref, {icon, zIndexOffset: 500}).bindTooltip(w.label, {direction:'top', className:'sar-pos-tooltip', offset:[0,-6]})
+      .addTo(entry.posLayer);
   });
   // Legend/note overlay -- dilewati kalau container sudah punya panel setara sendiri (mis. mode fullscreen punya #mf-legend).
   if (opts.legend !== false){
@@ -638,28 +791,32 @@ function renderMapBufferLeaflet(containerId, zonaStats){
   entry.bufferLinesLayer = linesLayer;
 
   zonaStats.filter(z=>z.kejadian>0).forEach(z=>{
-    const ref = POS_REAL_COORDS[z.pos]; if (!ref || !z.ref) return;
+    const ref = WILAYAH_REAL_COORDS[z.wilayah]; if (!ref || !z.ref) return;
     const col = CATMAP[z.dominanCatId] ? CATMAP[z.dominanCatId].color : '#FF7A1A';
     L.polyline([ref, z.ref], { color: col, weight:1.6, opacity:.5 })
-      .bindTooltip(`${z.kab} &rarr; ${z.pos}`, { sticky:true, className:'sar-pos-tooltip' })
+      .bindTooltip(`${z.kab} &rarr; ${z.wilayah}`, { sticky:true, className:'sar-pos-tooltip' })
       .addTo(linesLayer);
     L.circleMarker(z.ref, { radius: 4+Math.min(8,z.kejadian), color:'#0A0605', weight:1, fillColor:col, fillOpacity:.85 })
       .bindTooltip(`${z.kab}: ${z.kejadian} kejadian`, { direction:'top', className:'sar-pos-tooltip' })
       .addTo(linesLayer);
   });
 
-  POS_LIST.filter(p=>state.activePos.includes(p.id)).forEach(p=>{
-    const ref = POS_REAL_COORDS[p.label]; if (!ref) return;
+  WILAYAH_LIST.filter(w=>state.activeWilayah.includes(w.id)).forEach(w=>{
+    const ref = WILAYAH_REAL_COORDS[w.label]; if (!ref) return;
     const icon = L.divIcon({ className:'leaflet-pos-marker', html:'<div class="lp-dot"></div>', iconSize:[16,16], iconAnchor:[8,8] });
-    L.marker(ref, {icon, zIndexOffset:500}).bindTooltip(p.label, {direction:'top', className:'sar-pos-tooltip', offset:[0,-6]}).addTo(entry.markersLayer);
+    L.marker(ref, {icon, zIndexOffset:500}).bindTooltip(w.label, {direction:'top', className:'sar-pos-tooltip', offset:[0,-6]}).addTo(entry.markersLayer);
   });
 
   const wrap = document.getElementById(containerId);
   let legend = wrap.querySelector('.map-legend');
   if (!legend){ legend = document.createElement('div'); legend.className='map-legend'; wrap.appendChild(legend); }
-  legend.innerHTML = `<div class="row"><span class="sw" style="background:var(--o-90)"></span>Pos/Unit Siaga SAR</div><div class="row" style="color:var(--text-faint);">Garis = wilayah tertaut ke pos terdekat, warna = kategori dominan</div>`;
+  legend.innerHTML = `<div class="row"><span class="sw" style="background:var(--o-90)"></span>Wilayah</div><div class="row" style="color:var(--text-faint);">Garis = wilayah terkait, warna = kategori dominan</div>`;
 }
 
+/* Peta Jarak Temu: kolom jarak_dari_lkk_km TIDAK ADA di kejadian_sar (kolom 'jarak'
+   sengaja diabaikan sesuai keputusan sebelumnya). Garis LKK -> lokasi ditemukan tetap
+   digambar dari koordinat yang tersedia, tapi label jarak dihilangkan karena nilainya
+   tidak ada di skema saat ini. */
 function renderMapJarakTemuLeaflet(containerId, operasiRows){
   const entry = getOrCreateLeafletMap(containerId);
   entry.map.invalidateSize();
@@ -677,37 +834,33 @@ function renderMapJarakTemuLeaflet(containerId, operasiRows){
     overlay.innerHTML = `
       <div class="ic-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
       <div class="es-title">Belum ada titik "Ditemukan" untuk filter ini</div>
-      <div class="es-sub">Koordinat lokasi ditemukan akan tampil di sini setelah operasi ditutup dan data dientri. Coba ubah filter tahun/bulan/pos.</div>`;
+      <div class="es-sub">Koordinat lokasi ditemukan akan tampil di sini setelah operasi ditutup dan data dientri. Coba ubah filter tahun/bulan/wilayah.</div>`;
     wrap.appendChild(overlay);
     return;
   }
 
   const linesLayer = L.layerGroup().addTo(entry.map);
   entry.jtLinesLayer = linesLayer;
-  let distSum=0, distMax=0, distN=0;
   rows.forEach(o=>{
     const from = [o.lokasi_kejadian_lat, o.lokasi_kejadian_lon];
     const to = [o.lokasi_ditemukan_lat, o.lokasi_ditemukan_lon];
-    const distKm = o.jarak_dari_lkk_km;
-    const label = o.nama_objek_terdampak || o.lokasi_kejadian_deskripsi || 'Operasi #'+o.id_operasi;
-    if (distKm != null){ distSum += distKm; distMax = Math.max(distMax, distKm); distN++; }
+    const label = o.lokasi_kejadian_deskripsi || o.wilayah_mapped || 'Operasi #'+o.id_operasi;
     L.polyline([from, to], { color:'#FFC98A', weight:1.4, opacity:.55, dashArray:'5,4' })
-      .bindTooltip(`${label}: ${distKm!=null?distKm.toLocaleString('id-ID'):'-'} km`, { sticky:true, className:'sar-pos-tooltip' })
+      .bindTooltip(`${label}`, { sticky:true, className:'sar-pos-tooltip' })
       .addTo(linesLayer);
     L.circleMarker(from, { radius:5, color:'#0A0605', weight:1, fillColor:'#FF5A4A', fillOpacity:.9 }).addTo(linesLayer);
     L.circleMarker(to, { radius:5, color:'#0A0605', weight:1, fillColor:'#5FBE7A', fillOpacity:.9 }).addTo(linesLayer);
   });
-  const avgDist = distN ? (distSum/distN).toFixed(1) : '-';
 
   let legend = wrap.querySelector('.map-legend');
   if (!legend){ legend = document.createElement('div'); legend.className='map-legend'; wrap.appendChild(legend); }
   legend.innerHTML = `
     <div class="row"><span class="sw" style="background:#FF5A4A"></span>LKK / Lokasi Kejadian</div>
     <div class="row"><span class="sw" style="background:#5FBE7A"></span>Lokasi Ditemukan</div>
-    <div class="row" style="color:var(--text-faint);">arahkan kursor ke garis untuk lihat jarak</div>`;
+    <div class="row" style="color:var(--text-faint);">jarak tidak tersedia di data saat ini</div>`;
   let note = wrap.querySelector('.map-note');
   if (!note){ note = document.createElement('div'); note.className='map-note'; wrap.appendChild(note); }
-  note.textContent = `Rata-rata ${avgDist} km · Terjauh ${distMax.toFixed ? distMax.toFixed(1) : distMax} km`;
+  note.textContent = `${rows.length} pasangan titik`;
 }
 
 
@@ -721,7 +874,7 @@ function heatColorGreen(t){
   return `rgb(${Math.round(a[0]+(b[0]-a[0])*f)},${Math.round(a[1]+(b[1]-a[1])*f)},${Math.round(a[2]+(b[2]-a[2])*f)})`;
 }
 function predictionColor(t){
-  const stops = [[95,190,122],[214,196,70],[230,140,40],[196,74,26]];
+  const stops = [[76,175,80],[181,211,59],[255,235,59],[255,152,0],[229,57,53]];
   const n = stops.length - 1;
   const scaled = Math.max(0, Math.min(1, t)) * n;
   const i = Math.min(n - 1, Math.floor(scaled));
@@ -743,7 +896,7 @@ function renderMapDensityLeaflet(containerId, operasiRows, zonaStats){
 
   entry.heatLayer = L.heatLayer(points, {
     radius: 32, blur: 28, maxZoom: 12, minOpacity: .25,
-    gradient: { 0.2:'#E4F5D6', 0.4:'#A8DE9C', 0.6:'#5FBE7A', 0.75:'#4C93B0', 0.9:'#3572B8', 1:'#274E9E' },
+    gradient: { 0.2:'#4CAF50', 0.4:'#B5D33B', 0.6:'#FFEB3B', 0.8:'#FF9800', 1:'#E53935' },
   }).addTo(entry.map);
 
   // Label jumlah kejadian per kelompok wilayah, ditaruh di titik referensi tiap wilayah
@@ -772,7 +925,7 @@ function renderMapDensityLeaflet(containerId, operasiRows, zonaStats){
 
 function renderMapBuffer(containerId, zonaStats){
   const links = zonaStats.filter(z=>z.kejadian>0).map(z=>{
-    const ref = POS_REAL_COORDS[z.pos]; if (!ref) return '';
+    const ref = WILAYAH_REAL_COORDS[z.wilayah]; if (!ref) return '';
     const g1 = geoToPct(ref[0], ref[1]); const [sx,sy] = pt(g1.x, g1.y);
     const [ex,ey] = pt(z.x, z.y);
     const col = CATMAP[z.dominanCatId] ? CATMAP[z.dominanCatId].color : '#FF7A1A';
@@ -784,8 +937,8 @@ function renderMapBuffer(containerId, zonaStats){
     const col = CATMAP[z.dominanCatId] ? CATMAP[z.dominanCatId].color : '#FF7A1A';
     return `<circle cx="${px}" cy="${py}" r="${4+Math.min(8,z.kejadian)}" fill="${col}" fill-opacity=".85"/>`;
   }).join('');
-  const posMarkers = POS_LIST.filter(p=>state.activePos.includes(p.id)).map(p=>{
-    const ref = POS_REAL_COORDS[p.label]; if (!ref) return '';
+  const posMarkers = WILAYAH_LIST.filter(w=>state.activeWilayah.includes(w.id)).map(w=>{
+    const ref = WILAYAH_REAL_COORDS[w.label]; if (!ref) return '';
     const g = geoToPct(ref[0], ref[1]); const [px,py] = pt(g.x, g.y);
     return `<g>${posMarkerSVG(px,py,14)}</g>`;
   }).join('');
@@ -796,72 +949,28 @@ function renderMapBuffer(containerId, zonaStats){
       ${posMarkers}
     </svg>
     ${hotspotLayerZona(zonaStats.map(z=>({x:z.x,y:z.y,label:z.kab,value:z.kejadian})), 'tip-'+containerId)}
-    <div class="map-legend"><div class="row"><span class="sw" style="background:var(--o-90)"></span>Pos/Unit Siaga SAR</div><div class="row" style="color:var(--text-faint);">Garis = wilayah tertaut ke pos terdekat, warna = kategori dominan</div></div>`;
+    <div class="map-legend"><div class="row"><span class="sw" style="background:var(--o-90)"></span>Wilayah</div><div class="row" style="color:var(--text-faint);">Garis = wilayah terkait, warna = kategori dominan</div></div>`;
 }
-function renderMapJarakTemu(containerId, operasiRows){
-  const rows = (operasiRows||[]).filter(o=> o.lokasi_kejadian_lat!=null && o.lokasi_ditemukan_lat!=null).slice(0,20);
-  const el = $(containerId); if (!el) return;
-  if (rows.length === 0){
-    el.innerHTML = `<div class="empty-state" style="height:100%; justify-content:center;">
-      <div class="ic-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
-      <div class="es-title">Belum ada titik "Ditemukan" untuk filter ini</div>
-      <div class="es-sub">Koordinat lokasi ditemukan akan tampil di sini setelah operasi ditutup dan data dientri. Coba ubah filter tahun/bulan/pos.</div>
-    </div>`;
-    return;
-  }
-  const visibleLines = [], hitLines = [], lkkDots = [], foundDots = [];
-  let distSum = 0, distMax = 0, distN = 0;
-  rows.forEach(o=>{
-    const g1 = geoToPct(o.lokasi_kejadian_lat, o.lokasi_kejadian_lon);
-    const g2 = geoToPct(o.lokasi_ditemukan_lat, o.lokasi_ditemukan_lon);
-    const [sx,sy] = pt(g1.x,g1.y), [ex,ey] = pt(g2.x,g2.y);
-    const distKm = o.jarak_dari_lkk_km;
-    const midX = (g1.x+g2.x)/2, midY = (g1.y+g2.y)/2;
-    const label = (o.nama_objek_terdampak || o.lokasi_kejadian_deskripsi || 'Operasi #'+o.id_operasi).replace(/'/g,"\\'");
-    visibleLines.push(`<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="#FFC98A" stroke-opacity=".55" stroke-width="1.2" stroke-dasharray="4 3" pointer-events="none"/>`);
-    lkkDots.push(`<circle cx="${sx}" cy="${sy}" r="4.5" fill="#FF5A4A" stroke="#0A0605" stroke-width=".8"/>`);
-    foundDots.push(`<circle cx="${ex}" cy="${ey}" r="4.5" fill="#5FBE7A" stroke="#0A0605" stroke-width=".8"/>`);
-    if (distKm != null){
-      distSum += distKm; distMax = Math.max(distMax, distKm); distN++;
-    }
-    const distLabel = distKm != null ? distKm : 0;
-    hitLines.push(`<line x1="${sx}" y1="${sy}" x2="${ex}" y2="${ey}" stroke="transparent" stroke-width="14" style="cursor:pointer;" onmouseenter="showJarakTempTip('${containerId}','${label}', ${distLabel}, ${midX}, ${midY})" onmouseleave="hideJarakTempTip('${containerId}')"/>`);
-  });
-  const avgDist = distN ? (distSum/distN).toFixed(1) : '-';
-  el.innerHTML = `
-    <svg width="100%" height="100%" viewBox="0 0 800 400" preserveAspectRatio="xMidYMid meet">
-      ${mapBaseSVG()}
-      <g clip-path="url(#javaClip)">${visibleLines.join('')}${lkkDots.join('')}${foundDots.join('')}${hitLines.join('')}</g>
-    </svg>
-    <div class="map-tip" id="jttip-${containerId}"></div>
-    <div class="map-legend">
-      <div class="row"><span class="sw" style="background:#FF5A4A"></span>LKK / Lokasi Kejadian</div>
-      <div class="row"><span class="sw" style="background:#5FBE7A"></span>Lokasi Ditemukan</div>
-      <div class="row" style="color:var(--text-faint);">arahkan kursor ke garis untuk lihat jarak</div>
-    </div>
-    <div class="map-note">Rata-rata ${avgDist} km &middot; Terjauh ${distMax.toFixed ? distMax.toFixed(1) : distMax} km</div>`;
-}
-function showJarakTempTip(containerId, label, distKm, x, y){
-  const el = $('jttip-'+containerId); if (!el) return;
-  el.style.left = x+'%'; el.style.top = Math.max(6,y)+'%';
-  el.innerHTML = `<div class="mt-lbl">Jarak Temu</div><div class="mt-name">${label}</div><div class="mt-row"><span>LKK &rarr; Ditemukan</span><b>${Number(distKm).toLocaleString('id-ID')} km</b></div>`;
-  el.style.display = 'block';
-}
-function hideJarakTempTip(containerId){ const el = $('jttip-'+containerId); if (el) el.style.display = 'none'; }
 
 /* ================= BOOTSTRAP: load reference data ================= */
 async function loadRefData(){
-  const [kat, kl, sb, ins, per, pos] = await Promise.all([
-    Api.ref('kategori'), Api.ref('klasifikasi'),
-    Api.ref('sumber_berita'), Api.ref('instansi'), Api.ref('peralatan'), Api.ref('pos_unit'),
+  const [kat, kl, sb, wil] = await Promise.all([
+    Api.refNilai('kategori'), Api.refNilai('klasifikasi'),
+    Api.refNilai('sumber_berita'), Api.refNilai('wilayah'),
   ]);
-  CATS = kat.data.map((k,i)=>({id:k.id_kategori, label:k.nama_kategori, color: CAT_COLORS[i % CAT_COLORS.length]}));
+  CATS = kat.data.map((k,i)=>({id:k.nilai, label:k.nilai, color: CAT_COLORS[i % CAT_COLORS.length]}));
   CATMAP = Object.fromEntries(CATS.map(c=>[c.id, c]));
-  REF.klasifikasi = kl.data; REF.sumber = sb.data; REF.instansi = ins.data; REF.peralatan = per.data;
-  POS_LIST = pos.data.map(p=>({id:p.id_pos, label:p.nama_pos, status:p.status}));
-  POSMAP = Object.fromEntries(POS_LIST.map(p=>[p.id,p]));
+  REF.klasifikasi = kl.data; REF.sumber = sb.data;
+  // wilayah_mapped bisa berisi multi-nilai dipisah koma (mis. "Surabaya, Sumenep") --
+  // pecah dan ambil uniknya supaya WILAYAH_LIST berisi nama wilayah tunggal.
+  const wilayahSet = new Set();
+  wil.data.forEach(row=>{
+    (row.nilai || '').split(',').forEach(w=>{ w = w.trim(); if (w) wilayahSet.add(w); });
+  });
+  WILAYAH_LIST = Array.from(wilayahSet).sort().map(w=>({id:w, label:w}));
+  WILAYAH_MAP = Object.fromEntries(WILAYAH_LIST.map(w=>[w.id,w]));
   state.activeCats = CATS.map(c=>c.id);
-  state.activePos = POS_LIST.map(p=>p.id);
+  state.activeWilayah = WILAYAH_LIST.map(w=>w.id);
 }
 
 async function bootstrap(){
@@ -870,7 +979,7 @@ async function bootstrap(){
     const years = Array.from(new Set((allOps.data||[]).map(o=>o.tahun))).sort((a,b)=>a-b);
     YEARS_AVAILABLE = years.length ? years : [new Date().getFullYear()];
     state.year = YEARS_AVAILABLE[YEARS_AVAILABLE.length - 1];
-    state.activePos = computeDefaultActivePos(state.year);
+    state.activeWilayah = computeDefaultActiveWilayah(state.year);
   } catch (err) {
     document.querySelector('main.content').innerHTML = `<div class="card"><div class="card-body admin-loading" style="color:#FF9086;">
       Gagal memuat data dari server API (${err.message}).<br>Pastikan Flask (python app.py) berjalan dan database sudah terisi.
@@ -880,7 +989,7 @@ async function bootstrap(){
   buildTahunPanel();
   buildBulanPanel();
   buildKategoriPanel();
-  buildPosPanel();
+  buildWilayahPanel();
   buildPeriodePrediksiPanel();
   buildAdminSelectOptions();
   await checkAuthOnLoad();
@@ -930,8 +1039,8 @@ function renderKPI(kpi){
 async function renderBeranda(){
   baseOpt();
   const f = getActiveFilters();
-  const [kpiRes, operasiRes, komposisiRes, bebanPosRes, trenRes] = await Promise.all([
-    Api.kpi(f), Api.operasi(f), Api.komposisiKejadian(f), Api.bebanPos(f), Api.trenBulanan({tahun:f.tahun, kategori:f.kategori}),
+  const [kpiRes, operasiRes, komposisiRes, bebanWilayahRes, trenRes] = await Promise.all([
+    Api.kpi(f), Api.operasi(f), Api.komposisiKejadian(f), Api.bebanWilayah(f), Api.trenBulanan({tahun:f.tahun, kategori:f.kategori}),
   ]);
   const kpi = kpiRes.data;
   renderKPI(kpi);
@@ -943,17 +1052,17 @@ async function renderBeranda(){
   const dEl = $('chartDonutBeranda');
   if (dEl){
     charts.donutBeranda = new Chart(dEl, { type:'doughnut',
-      data:{ labels:komposisi.map(k=>k.nama_kategori), datasets:[{ data:komposisi.map(k=>k.jumlah), backgroundColor:komposisi.map(k=>CATMAP[k.id_kategori]?CATMAP[k.id_kategori].color:'#FF7A1A'), borderColor:'#0A0808', borderWidth:3 }] },
+      data:{ labels:komposisi.map(k=>k.nama_kategori), datasets:[{ data:komposisi.map(k=>k.jumlah), backgroundColor:komposisi.map(k=>CATMAP[k.nama_kategori]?CATMAP[k.nama_kategori].color:'#FF7A1A'), borderColor:'#0A0808', borderWidth:3 }] },
       options:{ cutout:'66%', plugins:{ legend:{display:false} } } });
-    renderLegendList('legend-beranda', komposisi.map(k=>({label:k.nama_kategori, color:CATMAP[k.id_kategori]?CATMAP[k.id_kategori].color:'#FF7A1A', value:k.jumlah})));
+    renderLegendList('legend-beranda', komposisi.map(k=>({label:k.nama_kategori, color:CATMAP[k.nama_kategori]?CATMAP[k.nama_kategori].color:'#FF7A1A', value:k.jumlah})));
   }
 
   destroy('bebanPos');
   const bpEl = $('chartBebanPos');
   if (bpEl){
-    const ps = bebanPosRes.data;
+    const ps = bebanWilayahRes.data;
     charts.bebanPos = new Chart(bpEl, { type:'bar',
-      data:{ labels:ps.map(p=>p.nama_pos), datasets:[{ data:ps.map(p=>p.jumlah), backgroundColor:'#FF7A1A', borderRadius:3 }] },
+      data:{ labels:ps.map(p=>p.nama_wilayah), datasets:[{ data:ps.map(p=>p.jumlah), backgroundColor:'#FF7A1A', borderRadius:3 }] },
       options:{ indexAxis:'y', scales:{ x:{grid:{color:'rgba(255,138,54,.12)'}, beginAtZero:true, title:{display:true,text:'Jumlah Operasi', color:'#C9B8A8', font:{size:11}}}, y:{grid:{display:false}, ticks:{font:{size:10}}} }, plugins:{legend:{display:false}} } });
   }
 
@@ -968,26 +1077,26 @@ async function renderBeranda(){
   }
 
 
-  const top = zonaStats[0] || {kab:'-', kejadian:0, pos:'-', dominanCatId:null};
+  const top = zonaStats[0] || {kab:'-', kejadian:0, wilayah:'-', dominanCatId:null};
   const successRate = kpi.korban_ditangani ? Math.round((kpi.selamat/kpi.korban_ditangani)*100) : 0;
   const domLabel = top.dominanCatId != null && CATMAP[top.dominanCatId] ? CATMAP[top.dominanCatId].label.toLowerCase() : '-';
   $('insight-panel').innerHTML = `
-    <div class="insight crit"><div class="tag">Zona Kritis</div><div class="txt">${top.kab} mencatat ${top.kejadian} kejadian pada periode terpilih, didominasi ${domLabel}, perlu penguatan kesiapsiagaan oleh ${top.pos}.</div></div>
+    <div class="insight crit"><div class="tag">Zona Kritis</div><div class="txt">${top.kab} mencatat ${top.kejadian} kejadian pada periode terpilih, didominasi ${domLabel}, perlu penguatan kesiapsiagaan di wilayah ${top.wilayah}.</div></div>
     <div class="insight pos"><div class="tag">Tingkat Keberhasilan</div><div class="txt">${successRate}% korban berhasil diselamatkan pada periode ini dari total ${kpi.korban_ditangani.toLocaleString('id-ID')} korban yang ditangani.</div></div>
-    <div class="insight info"><div class="tag">Cakupan Data</div><div class="txt">Menampilkan ${kpi.total_kejadian} operasi SAR tercatat sesuai filter aktif (tahun ${formatTahunLabel(state.year)}, ${state.activeCats.length} kategori, ${state.activePos.length} pos/unit siaga).</div></div>`;
+    <div class="insight info"><div class="tag">Cakupan Data</div><div class="txt">Menampilkan ${kpi.total_kejadian} operasi SAR tercatat sesuai filter aktif (tahun ${formatTahunLabel(state.year)}, ${state.activeCats.length} kategori, ${state.activeWilayah.length} wilayah).</div></div>`;
 
-  $('footnote-beranda').innerHTML = `<b>Catatan data:</b> Seluruh angka pada dashboard ini diambil langsung dari database <code>sar_dashboard</code> melalui API backend, bukan data dummy statis di frontend.`;
+  $('footnote-beranda').innerHTML = `<b>Catatan data:</b> Seluruh angka pada dashboard ini diambil langsung dari database <code>sar_db.kejadian_sar</code> melalui API backend, bukan data dummy statis di frontend.`;
 }
 
 /* ================= PETA ================= */
 async function renderPeta(){
   const f = getActiveFilters();
   const [kpiRes, operasiRes] = await Promise.all([Api.kpi(f), Api.operasi(f)]);
-  renderIncidentMapLeaflet('map-peta', operasiRes.data);   // <-- diganti
+  renderIncidentMapLeaflet('map-peta', operasiRes.data);
   const zonaStats = computeZonaStats(operasiRes.data);
   const items = [
     {label:'Total Titik Kejadian', value:kpiRes.data.total_kejadian, unit:'kejadian'},
-    {label:'Wilayah Cakupan Aktif', value:state.activePos.length, unit:'pos/unit siaga'},
+    {label:'Wilayah Cakupan Aktif', value:state.activeWilayah.length, unit:'wilayah'},
     {label:'Wilayah Terdampak', value:zonaStats.filter(z=>z.kejadian>0).length, unit:'kelompok wilayah'},
   ];
   $('peta-stats').innerHTML = items.map(it=>`
@@ -1017,7 +1126,7 @@ async function renderTren(){
   const tkEl = $('chartTrenKategori');
   if (tkEl){
     const byCatMonth = {};
-    trenRes.data.forEach(row=>{ (byCatMonth[row.id_kategori] ??= Array(12).fill(0))[row.bulan-1] = row.jumlah; });
+    trenRes.data.forEach(row=>{ (byCatMonth[row.nama_kategori] ??= Array(12).fill(0))[row.bulan-1] = row.jumlah; });
     charts.trenKategori = new Chart(tkEl, { type:'line',
       data:{ labels:MONTHS_SHORT, datasets: state.activeCats.map(cid=>({ label:CATMAP[cid].label, data: byCatMonth[cid] || Array(12).fill(0), borderColor:CATMAP[cid].color, backgroundColor:CATMAP[cid].color, borderWidth:1.6, pointRadius:0, tension:.3 })) },
       options:{ scales:{ x:{grid:{color:line}}, y:{grid:{color:line}, beginAtZero:true} }, plugins:{legend:{position:'bottom', labels:{boxWidth:9,font:{size:10}}}} } });
@@ -1026,7 +1135,7 @@ async function renderTren(){
   destroy('yoy');
   const yoyEl = $('chartYoY');
   if (yoyEl){
-    const yoyResults = await Promise.all(YEARS_AVAILABLE.map(y => Api.kpi({tahun:[y], kategori:f.kategori, pos:f.pos})));
+    const yoyResults = await Promise.all(YEARS_AVAILABLE.map(y => Api.kpi({tahun:[y], kategori:f.kategori, wilayah:f.wilayah})));
     $('yoy-sub').textContent = `${formatTahunLabel(YEARS_AVAILABLE[0])}–${formatTahunLabel(YEARS_AVAILABLE[YEARS_AVAILABLE.length-1])}`;
     charts.yoy = new Chart(yoyEl, { type:'line',
       data:{ labels:YEARS_AVAILABLE.map(formatTahunLabel), datasets:[{ label:'Total Kejadian/Tahun', data:yoyResults.map(r=>r.data.total_kejadian), borderColor:'#FF7A1A', backgroundColor:(c)=>orangeGlow(c,'rgba(255,122,26,.55)'), fill:true, tension:.3, pointBackgroundColor:'#FFAB5C', pointRadius:5 }] },
@@ -1086,9 +1195,9 @@ async function renderTren(){
     const byCat = {};
     allCatIds.forEach(cid=> byCat[cid] = {tempuh:[], durasi:[]});
     operasi.forEach(o=>{
-      if (!byCat[o.id_kategori]) return;
-      if (o.waktu_tempuh_menit != null) byCat[o.id_kategori].tempuh.push(o.waktu_tempuh_menit);
-      if (o.durasi_operasi_hari != null) byCat[o.id_kategori].durasi.push(o.durasi_operasi_hari);
+      if (!byCat[o.nama_kategori]) return;
+      if (o.waktu_tempuh_menit != null) byCat[o.nama_kategori].tempuh.push(o.waktu_tempuh_menit);
+      if (o.durasi_operasi_hari != null) byCat[o.nama_kategori].durasi.push(o.durasi_operasi_hari);
     });
     const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
     charts.tempuhDurasi = new Chart(tdEl, { type:'bar',
@@ -1111,7 +1220,7 @@ async function renderTren(){
     $('top-klasifikasi-sub').textContent = filteredCat.length ? `kategori terpilih (${filteredCat.length})` : 'seluruh kategori';
     const rows = topKlasRes.data;
     charts.topKlasifikasi = new Chart(tkEl2, { type:'bar',
-      data:{ labels: rows.map(r=>r.nama_klasifikasi), datasets:[{ data: rows.map(r=>r.jumlah), backgroundColor: rows.map(r=>CATMAP[r.id_kategori]?CATMAP[r.id_kategori].color:'#FF7A1A'), borderRadius:3 }] },
+      data:{ labels: rows.map(r=>r.nama_klasifikasi), datasets:[{ data: rows.map(r=>r.jumlah), backgroundColor: rows.map(r=>CATMAP[r.nama_kategori]?CATMAP[r.nama_kategori].color:'#FF7A1A'), borderRadius:3 }] },
       options:{ indexAxis:'y', layout:{padding:{right:36}}, scales:{ x:{grid:{color:line}, beginAtZero:true, title:{display:true, text:'Jumlah Kejadian', color:'#C9B8A8', font:{size:11}}}, y:{grid:{display:false}} }, plugins:{legend:{display:false}, barValueLabels:{enabled:true}} } });
   }
   destroy('status');
@@ -1145,7 +1254,7 @@ function generateRekomendasiZona(z){
   } else if (domLabel.includes('Membahayakan')) {
     base = `Sinergi dengan Dishub & kepolisian untuk penanganan kondisi membahayakan manusia.`;
   } else {
-    base = `Perkuat koordinasi penanganan khusus bersama ${z.pos}.`;
+    base = `Perkuat koordinasi penanganan khusus di wilayah ${z.wilayah}.`;
   }
   const urgency = z.kejadian >= 20 ? ' Prioritas tinggi — pertimbangkan penambahan unit siaga.'
     : z.kejadian >= 10 ? ' Prioritas sedang — evaluasi kesiapan personel & alat.'
@@ -1169,7 +1278,7 @@ async function renderZona(){
   $('zona-list').innerHTML = list.map((z,i)=>{
     return `<div class="rank-item">
       <div class="no">${String(i+1).padStart(2,'0')}</div>
-      <div class="info"><div class="kab">${z.kab}</div><div class="pos">${z.pos}</div></div>
+      <div class="info"><div class="kab">${z.kab}</div><div class="pos">${z.wilayah}</div></div>
       <div class="metric"><span class="n">${z.kejadian}</span><div class="bar-bg"><div class="bar-fg" style="width:${Math.round((z.kejadian/maxK)*100)}%"></div></div></div>
       <div class="rek">${generateRekomendasiZona(z)}</div>
     </div>`;
@@ -1201,7 +1310,7 @@ function onPeriodePrediksiToggle(el){
 let PREDICTION_ZONES_CACHE = null;
 async function computePredictionZones(){
   const f = getActiveFilters();
-  const operasiRes = await Api.operasi({tahun:[], bulan:[], kategori:f.kategori, pos:f.pos});
+  const operasiRes = await Api.operasi({tahun:[], bulan:[], kategori:f.kategori, wilayah:f.wilayah});
   const zonaStats = computeZonaStats(operasiRes.data);
   const maxK = Math.max(1, ...zonaStats.map(z=>z.kejadian));
   return zonaStats.map(z=> ({...z, level: Math.min(1, z.kejadian / maxK)}));
@@ -1226,7 +1335,7 @@ function renderMapPrediksiSpasialLeaflet(containerId, zones){
   const points = zones.filter(z=>z.ref).map(z=>[z.ref[0], z.ref[1], Math.max(0.05, z.level)]);
   entry.heatLayer = L.heatLayer(points, {
     radius: 40, blur: 34, maxZoom: 12, max: 1, minOpacity: .28,
-    gradient: { 0.15:'#5FBE7A', 0.45:'#D6C446', 0.72:'#E68C28', 1:'#C44A1A' },
+    gradient: { 0.2:'#4CAF50', 0.4:'#B5D33B', 0.6:'#FFEB3B', 0.8:'#FF9800', 1:'#E53935' },
   }).addTo(entry.map);
 
   zones.filter(z=>z.ref).forEach(z=>{
@@ -1263,7 +1372,7 @@ function hidePredTip(containerId){ const el = $('predtip-'+containerId); if (el)
 async function renderPrediksi(){
   baseOpt();
   const zones = await computePredictionZones();
-  renderMapPrediksiSpasialLeaflet('map-prediksi-spasial', zones);  // <-- diganti
+  renderMapPrediksiSpasialLeaflet('map-prediksi-spasial', zones);
 
   const f = getActiveFilters();
   const yearsForHist = YEARS_AVAILABLE.slice(-3);
@@ -1317,7 +1426,7 @@ async function renderPrediksi(){
   const latestYearTotals = {};
   let sumLatest = 0;
   const baselineIdx = yearsForHist.indexOf(baselineYear);
-  (trenPerYear[baselineIdx >= 0 ? baselineIdx : trenPerYear.length-1]?.data || []).forEach(row=>{ latestYearTotals[row.id_kategori] = (latestYearTotals[row.id_kategori]||0) + row.jumlah; sumLatest += row.jumlah; });
+  (trenPerYear[baselineIdx >= 0 ? baselineIdx : trenPerYear.length-1]?.data || []).forEach(row=>{ latestYearTotals[row.nama_kategori] = (latestYearTotals[row.nama_kategori]||0) + row.jumlah; sumLatest += row.jumlah; });
   destroy('prediksiKategori');
   const pkEl = $('chartPrediksiKategori');
   if (pkEl){
@@ -1331,32 +1440,40 @@ async function renderPrediksi(){
 
   let domKey = state.activeCats[0], domVal = -1;
   state.activeCats.forEach(cid=>{ const v = latestYearTotals[cid]||0; if (v>domVal){domVal=v; domKey=cid;} });
-  const topZona = zones.slice().sort((a,b)=>b.kejadian-a.kejadian)[0] || {kab:'-', pos:'-'};
+  const topZona = zones.slice().sort((a,b)=>b.kejadian-a.kejadian)[0] || {kab:'-', wilayah:'-'};
   $('alert-card').innerHTML = `
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
     <div>
       <div class="tag">Peringatan Kesiapsiagaan</div>
-      <div class="txt">Berdasarkan tren historis riil, <b>${domKey!=null && CATMAP[domKey] ? CATMAP[domKey].label : '-'}</b> diperkirakan tetap mendominasi pada 3 bulan ke depan, dengan wilayah rawan tertinggi di <b>${topZona.kab}</b>. Disarankan penguatan kesiapsiagaan oleh <b>${topZona.pos}</b>.</div>
+      <div class="txt">Berdasarkan tren historis riil, <b>${domKey!=null && CATMAP[domKey] ? CATMAP[domKey].label : '-'}</b> diperkirakan tetap mendominasi pada 3 bulan ke depan, dengan wilayah rawan tertinggi di <b>${topZona.kab}</b>. Disarankan penguatan kesiapsiagaan di wilayah <b>${topZona.wilayah}</b>.</div>
     </div>`;
 }
 
-/* ================= ADMIN: INPUT DATA OPERASI ================= */
+/* ================= ADMIN: INPUT DATA OPERASI =================
+   Skema kejadian_sar tidak punya tabel relasional korban/instansi/peralatan --
+   hanya kolom agregat s_org/md_org/h_org dan teks bebas instansi_jml_person/peralatan.
+   Form korban dipertahankan sebagai multi-row per-individu di UI (untuk kemudahan
+   input jumlah per status), tapi saat disimpan hanya JUMLAHNYA per status yang
+   dikirim ke backend (s_org/md_org/h_org), bukan datanya (nama/usia/dll -- karena
+   kolom itu tidak ada di kejadian_sar). Instansi & peralatan diinput sebagai
+   ringkasan teks bebas (instansi_jml_person, peralatan), bukan lagi checkbox/dropdown
+   dari tabel referensi yang sudah tidak ada. */
 function buildAdminSelectOptions(){
   const katEl = $('admin-f-kategori'), klEl = $('admin-f-klasifikasi'), sumberEl = $('admin-f-sumber'), posEl = $('admin-f-pos');
   if (katEl) katEl.innerHTML = CATS.map(c=>`<option value="${c.id}">${c.label}</option>`).join('');
-  if (klEl) klEl.innerHTML = '<option value="">- Tidak dipilih -</option>' + REF.klasifikasi.map(k=>`<option value="${k.id_klasifikasi}">${k.nama_klasifikasi}</option>`).join('');
-  if (sumberEl) sumberEl.innerHTML = '<option value="">- Tidak dipilih -</option>' + REF.sumber.map(s=>`<option value="${s.id_sumber}">${s.nama_sumber}</option>`).join('');
-  if (posEl) posEl.innerHTML = POS_LIST.map(p=>`<option value="${p.id}">${p.label}</option>`).join('');
+  if (klEl) klEl.innerHTML = '<option value="">- Tidak dipilih -</option>' + (REF.klasifikasi||[]).map(k=>`<option value="${k.nilai}">${k.nilai}</option>`).join('');
+  if (sumberEl) sumberEl.innerHTML = '<option value="">- Tidak dipilih -</option>' + (REF.sumber||[]).map(s=>`<option value="${s.nilai}">${s.nilai}</option>`).join('');
+  if (posEl) posEl.innerHTML = WILAYAH_LIST.map(w=>`<option value="${w.id}">${w.label}</option>`).join('');
   buildPeralatanCheckboxes();
 }
 function buildPeralatanCheckboxes(){
+  // Tabel ref_peralatan sudah tidak ada -- peralatan sekarang kolom teks bebas
+  // (lihat #admin-f-peralatan-teks di HTML), grid checkbox lama dinonaktifkan.
   const grid = $('admin-peralatan-grid'); if (!grid) return;
-  grid.innerHTML = REF.peralatan.map(p=>`
-    <label class="admin-checkbox-opt"><input type="checkbox" data-peralatan-id="${p.id_peralatan}">${p.nama_peralatan}</label>
-  `).join('');
+  grid.innerHTML = '<div class="admin-empty-hint">Input peralatan sekarang berupa teks bebas (lihat kolom di atas), bukan checkbox tabel referensi.</div>';
 }
 /* Status Operasi TIDAK diinput manual -- dihitung otomatis dari kelengkapan
-   Waktu Berangkat & Waktu Selesai (mencerminkan kolom GENERATED status_operasi
+   Waktu Berangkat & Waktu Selesai (mencerminkan kolom status_operasi
    di database), sama seperti "Lokasi Ditemukan" hanya tampil saat keduanya terisi. */
 function updateStatusIndicator(){
   const berangkat = $('admin-f-waktu-berangkat').value;
@@ -1368,7 +1485,10 @@ function updateStatusIndicator(){
   $('admin-section-f').style.display = dilaksanakan ? 'block' : 'none';
 }
 
-/* ---- Korban multi-entry ---- */
+/* ---- Korban: form multi-row per-individu DIPERTAHANKAN di UI untuk kemudahan
+   input, tapi backend baru cuma menyimpan agregat s_org/md_org/h_org -- summary
+   di bawah dihitung dari baris-baris ini dan itulah yang benar-benar dikirim
+   ke server (lihat collectAdminFormPayload). */
 let korbanRows = [];
 let korbanRowSeq = 0;
 function addKorbanRow(data){
@@ -1414,12 +1534,14 @@ function renderKorbanRows(){
   recomputeKorbanSummary();
 }
 
-/* ---- Instansi multi-entry ---- */
+/* ---- Instansi: input teks bebas (pengganti multi-select tabel referensi yang
+   tidak ada lagi). Disimpan sebagai ringkasan string "Nama(jumlah), Nama2(jumlah2)"
+   ke kolom instansi_jml_person, sesuai keputusan form terstruktur -> teks ringkasan. */
 let instansiRows = [];
 let instansiRowSeq = 0;
 function addInstansiRow(data){
   const id = ++instansiRowSeq;
-  instansiRows.push({ id, id_instansi: REF.instansi[0] ? REF.instansi[0].id_instansi : '', jumlah_personel:1, ...(data||{}) });
+  instansiRows.push({ id, nama_instansi:'', jumlah_personel:1, ...(data||{}) });
   renderInstansiRows();
 }
 function removeInstansiRow(id){ instansiRows = instansiRows.filter(r=>r.id!==id); renderInstansiRows(); }
@@ -1429,38 +1551,50 @@ function renderInstansiRows(){
   if (!instansiRows.length){ el.innerHTML = '<div class="admin-empty-hint">Belum ada instansi ditambahkan.</div>'; return; }
   el.innerHTML = instansiRows.map(r=>`
     <div class="admin-multi-row">
-      <div class="admin-field" style="flex:2;"><label>Instansi</label><select class="admin-input" onchange="updateInstansiField(${r.id},'id_instansi',this.value)">
-        ${REF.instansi.map(i=>`<option value="${i.id_instansi}" ${String(r.id_instansi)===String(i.id_instansi)?'selected':''}>${i.nama_instansi}</option>`).join('')}
-      </select></div>
+      <div class="admin-field" style="flex:2;"><label>Instansi</label><input class="admin-input" value="${r.nama_instansi||''}" oninput="updateInstansiField(${r.id},'nama_instansi',this.value)"></div>
       <div class="admin-field" style="flex:1;"><label>Jumlah Personel</label><input type="number" min="0" class="admin-input" value="${r.jumlah_personel}" oninput="updateInstansiField(${r.id},'jumlah_personel',this.value)"></div>
       <button type="button" class="admin-table-action admin-table-action-danger" onclick="removeInstansiRow(${r.id})">Hapus</button>
     </div>`).join('');
 }
 
-/* ---- Mini map picker ---- */
+/* ---- Mini map picker (Leaflet asli, dengan marker draggable) ---- */
 function initAdminMapPicker(){
   const el = $('admin-map-picker'); if (!el) return;
-  el.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 800 400" preserveAspectRatio="xMidYMid meet" style="cursor:crosshair;" onclick="onAdminMapPick(event)">${mapBaseSVG()}<g id="admin-map-marker"></g></svg><div class="map-note">Klik peta untuk isi koordinat</div>`;
+  const entry = getOrCreateLeafletMap('admin-map-picker');
+  entry.map.invalidateSize();
+  entry.markersLayer.clearLayers();
+
+  entry.map.off('click', onAdminMapClick);
+  entry.map.on('click', onAdminMapClick);
+
+  let note = el.querySelector('.map-note');
+  if (!note){ note = document.createElement('div'); note.className = 'map-note'; el.appendChild(note); }
+  note.textContent = 'Klik peta (atau geser pin) untuk isi koordinat';
+
   const latVal = parseFloat($('admin-f-lat').value), lonVal = parseFloat($('admin-f-lon').value);
   if (!isNaN(latVal) && !isNaN(lonVal)){
-    const g = geoToPct(latVal, lonVal);
-    if (g) placeAdminMapMarker(g.x, g.y);
+    placeAdminMapMarker(latVal, lonVal, {pan:true});
   }
 }
-function placeAdminMapMarker(xPct, yPct){
-  const marker = $('admin-map-marker'); if (!marker) return;
-  const [px,py] = pt(Math.max(0,Math.min(100,xPct)), Math.max(0,Math.min(100,yPct)));
-  marker.innerHTML = `<circle cx="${px}" cy="${py}" r="7" fill="#FF7A1A" fill-opacity=".28"/><circle cx="${px}" cy="${py}" r="4.5" fill="#FF7A1A" stroke="#0A0605" stroke-width="1.4"/>`;
+function placeAdminMapMarker(lat, lon, opts){
+  opts = opts || {};
+  const entry = getOrCreateLeafletMap('admin-map-picker');
+  entry.markersLayer.clearLayers();
+  const icon = L.divIcon({ className:'leaflet-pos-marker', html:'<div class="lp-dot"></div>', iconSize:[16,16], iconAnchor:[8,8] });
+  L.marker([lat, lon], {icon, draggable:true, zIndexOffset:700})
+    .on('dragend', function(e){
+      const pos = e.target.getLatLng();
+      $('admin-f-lat').value = pos.lat.toFixed(6);
+      $('admin-f-lon').value = pos.lng.toFixed(6);
+    })
+    .addTo(entry.markersLayer);
+  if (opts.pan) entry.map.panTo([lat, lon]);
 }
-function onAdminMapPick(evt){
-  const svg = evt.currentTarget;
-  const rect = svg.getBoundingClientRect();
-  const xPct = ((evt.clientX - rect.left) / rect.width) * 100;
-  const yPct = ((evt.clientY - rect.top) / rect.height) * 100;
-  const { lat, lon } = pctToGeo(xPct, yPct);
+function onAdminMapClick(e){
+  const { lat, lng } = e.latlng;
   $('admin-f-lat').value = lat.toFixed(6);
-  $('admin-f-lon').value = lon.toFixed(6);
-  placeAdminMapMarker(xPct, yPct);
+  $('admin-f-lon').value = lng.toFixed(6);
+  placeAdminMapMarker(lat, lng);
 }
 
 let editingOpId = null;
@@ -1489,7 +1623,7 @@ function resetAdminForm(){
   $('admin-f-lat').value = '';
   $('admin-f-lon').value = '';
   $('admin-f-radial').value = '';
-  $('admin-f-pos').value = POS_LIST[0] ? POS_LIST[0].id : '';
+  $('admin-f-pos').value = WILAYAH_LIST[0] ? WILAYAH_LIST[0].id : '';
   $('admin-f-waktu-berangkat').value = '';
   $('admin-f-waktu-tiba').value = '';
   $('admin-f-waktu-selesai').value = '';
@@ -1520,49 +1654,39 @@ async function loadAdminOpToForm(id){
   editingOpId = id;
   $('admin-form-title').textContent = 'Edit Operasi #' + id;
   $('admin-f-id').value = op.id_operasi;
-  $('admin-f-kategori').value = op.id_kategori || '';
-  $('admin-f-klasifikasi').value = op.id_klasifikasi || '';
-  $('admin-f-objek').value = op.nama_objek_terdampak || '';
+  $('admin-f-kategori').value = op.nama_kategori || '';
+  $('admin-f-klasifikasi').value = op.nama_klasifikasi || '';
+  $('admin-f-objek').value = op.lokasi_kejadian_deskripsi || '';
   $('admin-f-waktu-kejadian').value = toLocalInput(op.waktu_kejadian);
   $('admin-f-tgl-lapor').value = toLocalInput(op.waktu_lapor);
-  $('admin-f-sumber').value = op.id_sumber || '';
-  $('admin-f-nama-pelapor').value = op.nama_pelapor || '';
-  $('admin-f-instansi-pelapor').value = op.instansi_pelapor || '';
-  $('admin-f-hp-pelapor').value = op.no_hp_pelapor || '';
+  $('admin-f-sumber').value = op.sumber_berita || '';
   $('admin-f-narasi').value = op.narasi_kejadian || '';
   $('admin-f-lkk').value = op.lokasi_kejadian_deskripsi || '';
   $('admin-f-lat').value = op.lokasi_kejadian_lat != null ? op.lokasi_kejadian_lat : '';
   $('admin-f-lon').value = op.lokasi_kejadian_lon != null ? op.lokasi_kejadian_lon : '';
-  $('admin-f-radial').value = op.radial_derajat != null ? op.radial_derajat : '';
-  $('admin-f-pos').value = op.id_pos || '';
+  $('admin-f-pos').value = op.wilayah_mapped || '';
   $('admin-f-waktu-berangkat').value = toLocalInput(op.waktu_berangkat);
   $('admin-f-waktu-tiba').value = toLocalInput(op.waktu_tiba);
-  $('admin-f-waktu-siap').value = op.waktu_siap_menit != null ? op.waktu_siap_menit : '';
+  $('admin-f-waktu-siap').value = op.waktu_siap != null ? op.waktu_siap : '';
   $('admin-f-waktu-tempuh').value = op.waktu_tempuh_menit != null ? op.waktu_tempuh_menit : '';
-  $('admin-f-jarak-laut').value = op.jarak_laut_nm != null ? op.jarak_laut_nm : '';
-  $('admin-f-jarak-darat').value = op.jarak_darat_km != null ? op.jarak_darat_km : '';
   $('admin-f-pob').value = op.pob != null ? op.pob : 0;
   $('admin-f-waktu-selesai').value = toLocalInput(op.waktu_selesai);
-  $('admin-f-kendala').value = op.kendala_pelaksanaan || '';
   $('admin-f-lat-ditemukan').value = op.lokasi_ditemukan_lat != null ? op.lokasi_ditemukan_lat : '';
   $('admin-f-lon-ditemukan').value = op.lokasi_ditemukan_lon != null ? op.lokasi_ditemukan_lon : '';
   $('admin-f-lokasi-ditemukan').value = op.lokasi_ditemukan_deskripsi || '';
-  $('admin-f-jarak-lkk').value = op.jarak_dari_lkk_km != null ? op.jarak_dari_lkk_km : '';
-  $('admin-f-biaya').value = op.biaya_rp != null ? op.biaya_rp : '';
-  $('admin-f-lain').value = op.lain_lain || '';
 
+  // Isi ulang baris korban dari agregat sederhana (jumlah_selamat/meninggal/hilang)
+  // sebagai baris tanpa nama -- placeholder sampai form disederhanakan jadi
+  // input angka langsung.
   korbanRows = []; korbanRowSeq = 0;
-  (op.korban || []).forEach(k => addKorbanRow({ nama:k.nama, jenis_kelamin:k.jenis_kelamin, usia:k.usia, pekerjaan:k.pekerjaan, alamat_desa:k.alamat_desa, alamat_kecamatan:k.alamat_kecamatan, alamat_kabupaten:k.alamat_kabupaten, status:k.status }));
-  if (!(op.korban||[]).length) renderKorbanRows();
+  const jumlahSelamat = op.jumlah_selamat || 0, jumlahMeninggal = op.jumlah_meninggal || 0, jumlahHilang = op.jumlah_hilang || 0;
+  for (let i=0;i<jumlahSelamat;i++) addKorbanRow({status:'Selamat'});
+  for (let i=0;i<jumlahMeninggal;i++) addKorbanRow({status:'Meninggal Dunia'});
+  for (let i=0;i<jumlahHilang;i++) addKorbanRow({status:'Hilang'});
+  if (!jumlahSelamat && !jumlahMeninggal && !jumlahHilang) renderKorbanRows();
 
   instansiRows = []; instansiRowSeq = 0;
-  (op.instansi || []).forEach(i => addInstansiRow({ id_instansi:i.id_instansi, jumlah_personel:i.jumlah_personel }));
-  if (!(op.instansi||[]).length) renderInstansiRows();
-
-  document.querySelectorAll('#admin-peralatan-grid input').forEach(cb=>{
-    const pid = parseInt(cb.dataset.peralatanId, 10);
-    cb.checked = (op.peralatan||[]).some(p=>p.id_peralatan===pid);
-  });
+  renderInstansiRows();
 
   $('admin-form-error').style.display = 'none';
   updateStatusIndicator();
@@ -1595,7 +1719,7 @@ function validateAdminForm(){
   else if (lat < -90 || lat > 90) errors.push('Koordinat tidak valid (Latitude harus -90 s.d. 90).');
   if (val('admin-f-lon') === '' || isNaN(lon)) errors.push('Longitude wajib diisi.');
   else if (lon < -180 || lon > 180) errors.push('Koordinat tidak valid (Longitude harus -180 s.d. 180).');
-  if (!val('admin-f-pos')) errors.push('Pos/Unit Siaga wajib diisi.');
+  if (!val('admin-f-pos')) errors.push('Wilayah wajib diisi.');
 
   const pob = parseInt(val('admin-f-pob') || '0', 10);
   const s = {Selamat:0, 'Meninggal Dunia':0, Hilang:0};
@@ -1625,47 +1749,37 @@ function collectAdminFormPayload(){
   const s = {Selamat:0, 'Meninggal Dunia':0, Hilang:0};
   korbanRows.forEach(r=>{ if (s[r.status] !== undefined) s[r.status]++; });
 
-  const peralatan = [];
-  document.querySelectorAll('#admin-peralatan-grid input').forEach(cb=>{
-    if (cb.checked) peralatan.push({ id_peralatan: parseInt(cb.dataset.peralatanId,10), jumlah:1 });
-  });
+  // Ringkasan teks instansi, format "Nama(jumlah), Nama2(jumlah2)" -- sesuai
+  // pola yang sudah ada di data historis kejadian_sar.
+  const instansiRingkasan = instansiRows
+    .filter(r=>r.nama_instansi && r.nama_instansi.trim())
+    .map(r=>`${r.nama_instansi.trim()}(${parseInt(r.jumlah_personel||0,10)})`)
+    .join(', ');
 
   return {
     waktu_kejadian: dt('admin-f-waktu-kejadian'),
-    id_kategori: intVal('admin-f-kategori'),
-    id_klasifikasi: intVal('admin-f-klasifikasi'),
-    nama_objek_terdampak: val('admin-f-objek') || null,
-    narasi_kejadian: val('admin-f-narasi') || null,
-    lokasi_kejadian: { deskripsi: val('admin-f-lkk') || null, koordinat_teks: null, latitude: num('admin-f-lat'), longitude: num('admin-f-lon') },
-    radial_derajat: num('admin-f-radial'),
-    id_pos: intVal('admin-f-pos'),
-    id_sumber: intVal('admin-f-sumber'),
-    nama_pelapor: val('admin-f-nama-pelapor') || null,
-    instansi_pelapor: val('admin-f-instansi-pelapor') || null,
-    no_hp_pelapor: val('admin-f-hp-pelapor') || null,
+    kategori: val('admin-f-kategori') || null,
+    kategori_kejadian: val('admin-f-klasifikasi') || null,
+    posisi_koordinat_area: val('admin-f-lkk') || null,
+    jenis_kecelakaan: val('admin-f-narasi') || null,
+    latitude_lkk: num('admin-f-lat'),
+    longitude_lkk: num('admin-f-lon'),
+    wilayah_mapped: val('admin-f-pos') || null,
+    sumber_berita: val('admin-f-sumber') || null,
     waktu_lapor: dt('admin-f-tgl-lapor'),
     waktu_berangkat: dt('admin-f-waktu-berangkat'),
     waktu_tiba: dt('admin-f-waktu-tiba'),
     waktu_selesai: dt('admin-f-waktu-selesai'),
-    waktu_siap_menit: intVal('admin-f-waktu-siap'),
-    waktu_tempuh_menit: intVal('admin-f-waktu-tempuh'),
-    jarak_laut_nm: num('admin-f-jarak-laut'),
-    jarak_darat_km: num('admin-f-jarak-darat'),
+    waktu_siap: num('admin-f-waktu-siap'),
+    waktu_tempuh_menit: num('admin-f-waktu-tempuh'),
     pob: intVal('admin-f-pob'),
-    jumlah_selamat: s['Selamat'],
-    jumlah_meninggal: s['Meninggal Dunia'],
-    jumlah_hilang: s['Hilang'],
-    kendala_pelaksanaan: val('admin-f-kendala') || null,
-    lokasi_ditemukan: (val('admin-f-lokasi-ditemukan') || val('admin-f-lat-ditemukan')) ? {
-      deskripsi: val('admin-f-lokasi-ditemukan') || null, koordinat_teks:null,
-      latitude: num('admin-f-lat-ditemukan'), longitude: num('admin-f-lon-ditemukan'),
-    } : null,
-    jarak_dari_lkk_km: num('admin-f-jarak-lkk'),
-    lain_lain: val('admin-f-lain') || null,
-    biaya_rp: num('admin-f-biaya'),
-    instansi: instansiRows.map(r=>({ id_instansi: parseInt(r.id_instansi,10), jumlah_personel: parseInt(r.jumlah_personel||0,10) })),
-    peralatan,
-    korban: korbanRows.map(r=>({ nama:r.nama, jenis_kelamin:r.jenis_kelamin, usia: r.usia===''?null:parseInt(r.usia,10), pekerjaan:r.pekerjaan||null, alamat_desa:r.alamat_desa||null, alamat_kecamatan:r.alamat_kecamatan||null, alamat_kabupaten:r.alamat_kabupaten||null, status:r.status })).filter(k=>k.nama && k.status),
+    s_org: s['Selamat'],
+    md_org: s['Meninggal Dunia'],
+    h_org: s['Hilang'],
+    lokasi_ditemukan: val('admin-f-lokasi-ditemukan') || null,
+    latitude_ditemukan: num('admin-f-lat-ditemukan'),
+    longitude_ditemukan: num('admin-f-lon-ditemukan'),
+    instansi_jml_person: instansiRingkasan || null,
   };
 }
 
@@ -1750,7 +1864,6 @@ async function renderAdminInputPage(){
   renderAdminOpsTable();
 }
 
-/* ================= FULLSCREEN MAP (Beranda) ================= */
 /* ================= FULLSCREEN MAP (generik: peta / jaraktemu) ================= */
 let fsMapKind = null; // 'peta' atau 'jaraktemu'
 

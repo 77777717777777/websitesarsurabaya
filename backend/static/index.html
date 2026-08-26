@@ -85,7 +85,7 @@
   .sidebar-foot{padding:14px 16px; border-top:1px solid var(--line);}
   .sys-status{display:flex; align-items:center; gap:9px;}
   .sys-status .sq{width:7px; height:7px; border-radius:50%; background:var(--safe); flex-shrink:0; box-shadow:0 0 0 3px rgba(95,190,122,.15);}
-  .sys-status .lbl{font-size:9.5px; color:var(--safe); font-weight:700; letter-spacing:.05em; font-family:var(--display);}
+  .sys-status .lbl{font-size:9.5px; color:var(--text-hi); font-weight:700; letter-spacing:.05em; font-family:var(--display);}
   .sys-status .sub{font-size:9px; color:var(--text-faint); font-family:var(--mono); margin-top:2px;}
 
   /* ===================== MAIN ===================== */
@@ -254,8 +254,38 @@
   .map-legend .row{display:flex; align-items:center; gap:6px; font-size:7px; color:var(--text-mid); margin-bottom:4px;}
   .map-legend .row:last-child{margin-bottom:0;}
   .map-legend .sw{width:8px; height:8px; border-radius:2px; flex-shrink:0;}
-  .map-legend .grad-scale{display:flex; align-items:center; gap:7px; font-size:9.5px; color:var(--text-faint); margin-top:7px; padding-top:7px; border-top:1px solid var(--line);}
-  .map-legend .grad-scale .bar{width:70px; height:6px; border-radius:3px; background:linear-gradient(90deg, #FFE066, #FFB020, #FF7A1A, #D6480F, #7A2E0E);}
+  .map-legend .grad-scale{display:flex; align-items:center; gap:6px; font-size:7px; color:var(--text-faint); margin-top:6px; padding-top:6px; border-top:1px solid var(--line);}
+  .map-legend .grad-scale .bar{width:60px; height:5px; border-radius:3px; background:linear-gradient(90deg, #FFE066, #FFB020, #FF7A1A, #D6480F, #7A2E0E);}  
+  .map-layer-btn{
+      position:absolute; z-index:800; top:9px; right:9px; width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+      background:rgba(14,10,7,.82); border:1px solid var(--glass-brd-hi); cursor:pointer; transition:background .15s, border-color .15s;
+    }
+    .map-layer-btn.shift-down{ top:45px; }
+    .map-layer-btn:hover{background:rgba(255,106,15,.18); border-color:var(--o-80);}
+    .map-layer-btn svg{width:14px; height:14px; color:var(--o-90);}
+
+    .map-layer-panel{
+      position:fixed; z-index:850; width:190px; display:none;
+      background:rgba(18,13,10,.97); backdrop-filter:blur(20px); border:1px solid var(--glass-brd-hi); border-radius:var(--r-lg);
+      box-shadow:0 20px 44px rgba(0,0,0,.6); padding:0; overflow:hidden;
+    }
+  .map-layer-panel.open{ display:block; }
+  .map-layer-panel-inner{ padding:10px; overflow-y:auto; max-height:inherit; }
+  .map-layer-panel .lp-section-title{font-family:var(--display); font-size:8.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint); margin:2px 0 7px;}
+  .map-layer-panel .lp-basemap-row{display:flex; gap:5px; margin-bottom:10px;}
+  .map-layer-panel .lp-bm-opt{flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; padding:7px 4px; border-radius:8px; cursor:pointer; border:1px solid var(--glass-brd); background:var(--glass); transition:background .15s, border-color .15s;}
+  .map-layer-panel .lp-bm-opt:hover{border-color:var(--o-70);}
+  .map-layer-panel .lp-bm-opt.active{border-color:var(--o-80); background:rgba(255,106,15,.16);}
+  .map-layer-panel .lp-bm-opt .sw{width:100%; height:22px; border-radius:5px;}
+  .map-layer-panel .lp-bm-opt.bm-dark .sw{background:linear-gradient(160deg,#2A1D14,#0A0605);}
+  .map-layer-panel .lp-bm-opt.bm-light .sw{background:linear-gradient(160deg,#E9E4DA,#C9C2B4);}
+  .map-layer-panel .lp-bm-opt.bm-terrain .sw{background:linear-gradient(160deg,#B7CBA8,#8FA878);}
+  .map-layer-panel .lp-bm-opt .lbl{font-size:9px; color:var(--text-mid); font-weight:600;}
+  .map-layer-panel .lp-bm-opt.active .lbl{color:var(--text-hi);}
+  .map-layer-panel .lp-divider{height:1px; background:var(--line); margin:9px 0;}
+  .map-layer-panel .lp-layer-opt{display:flex; align-items:center; gap:8px; padding:6px 4px; border-radius:7px; cursor:pointer; font-size:11px; color:var(--text-mid);}
+  .map-layer-panel .lp-layer-opt:hover{background:rgba(255,106,15,.08); color:var(--text-hi);}
+  .map-layer-panel .lp-layer-opt input{accent-color:var(--o-90);}
   .map-note{
     display:none;
     position:absolute; z-index:800; top:9px; right:9px; padding:4px 9px; border-radius:var(--r);
@@ -439,20 +469,20 @@
 
   .zone-priority-density .map-wrap{ height: 420px; max-height: 420px; flex: none; }
   @media (max-width:1100px){ .zone-priority-density .map-wrap{ height: 320px; max-height: 320px; } }
-  .map-legend.zone-priority-density-legend{max-width:210px; padding:10px 13px;}
+  .map-legend.zone-priority-density-legend{max-width:170px; padding:8px 10px;}
   .zdl-badge{
     width:19px; height:19px; border-radius:50%; display:flex; align-items:center; justify-content:center;
     background:rgba(10,8,6,.82); border:1.2px solid rgba(200,255,190,.4); color:#EAF5E2;
     font-family:var(--mono); font-size:8px; font-weight:700; box-shadow:0 0 6px rgba(95,190,122,.3);
   }
   .zone-priority-gb-bar{width:96px; height:9px; border-radius:5px; flex-shrink:0;
-    background:linear-gradient(90deg, #E4F5D6, #A8DE9C, #5FBE7A, #4C93B0, #3572B8, #274E9E);
+    background:linear-gradient(90deg, #4CAF50, #B5D33B, #FFEB3B, #FF9800, #E53935);
   }
-  .zone-priority-scale-numbers{display:flex; justify-content:space-between; width:96px; margin:6px 0 0 40px; font-family:var(--mono); font-size:8.5px; color:var(--text-faint);}
+  .zone-priority-scale-numbers{display:flex; justify-content:space-between; width:80px; margin:5px 0 0 34px; font-family:var(--mono); font-size:7px; color:var(--text-faint);}
 
   .prediction-map{ height: 420px; max-height: 420px; flex: none; }
   @media (max-width:1100px){ .prediction-map{ height: 340px; max-height: 340px; } }
-  .prediction-grad-bar{width:96px; height:9px; border-radius:5px; flex-shrink:0; background:linear-gradient(90deg, #5FBE7A, #D6C446, #E68C28, #C44A1A);}
+  .prediction-grad-bar{width:96px; height:9px; border-radius:5px; flex-shrink:0; background:linear-gradient(90deg, #4CAF50, #B5D33B, #FFEB3B, #FF9800, #E53935);}
 
   /* ===================== AUTH & ADMIN ===================== */
   .nav-divider{height:1px; background:var(--line); margin:12px 10px;}
@@ -644,12 +674,7 @@
         Input Data Operasi
       </button>
     </nav>
-    <div class="sidebar-foot">
-      <div class="sys-status">
-        <div class="sq"></div>
-        <div><div class="lbl">SISTEM AKTIF</div><div class="sub">BASARNAS KELAS A, SURABAYA</div></div>
-      </div>
-    </div>
+
   </aside>
   <div class="main">
     <div class="topbar">
@@ -664,7 +689,7 @@
             <div class="dt-date" id="date-str2">-</div>
           </div>
         </div>
-        <div class="export-wrap">
+        <div class="export-wrap" id="export-wrap" style="display:none;">
           <button class="btn-ghost clickable btn-export" onclick="toggleExportPanel()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Export
@@ -751,7 +776,9 @@
       <!-- ================= PETA ================= -->
       <section class="page" id="page-peta">
         <div class="card">
-          <div class="card-head"><h3>Peta Sebaran Kejadian SAR</h3><span class="sub">Jawa Timur, titik kejadian per kategori dan wilayah cakupan pos SAR</span></div>
+          <div class="card-head">
+            <h3>Peta Sebaran Operasi SAR</h3><span class="sub">Area Kerja Kantor SAR Surabaya</span>
+          </div>
           <div class="card-body">
             <div class="map-wrap" id="map-peta" style="height:440px;">
               <button class="map-maximize-btn" onclick="openMapFullscreen('peta')" title="Perbesar peta ke layar penuh">
@@ -1198,8 +1225,14 @@
   const mapWrap = document.querySelector('#map-beranda');
   if(!pieCard || !mapCard || !mapWrap) return;
 
+  // Tinggi default/minimum peta -- setara tampilan saat legend Komposisi Kejadian
+  // terisi penuh (~5 kategori). Kalau legend sedikit (1-2 kategori) dan pie card
+  // jadi lebih pendek dari ini, peta TIDAK ikut menyusut -- tetap pakai tinggi ini.
+  const MIN_MAP_CARD_HEIGHT = 400;
+
   const ro = new ResizeObserver(() => {
-    const h = pieCard.getBoundingClientRect().height;
+    const pieH = pieCard.getBoundingClientRect().height;
+    const h = Math.max(pieH, MIN_MAP_CARD_HEIGHT);
     mapCard.style.height = h + 'px';
     mapWrap.style.height = (h - mapCard.querySelector('.card-head').offsetHeight - 34) + 'px'; // 34 = padding card-body (17*2)
     // panggil invalidateSize kalau instance leaflet-nya ada

@@ -3,31 +3,36 @@ from db import query_all, query_one
 
 public_bp = Blueprint('public', __name__, url_prefix='/api')
 
-# Recompute korban counts from the `korban` table when it has rows for an operasi,
-# falling back to the manual jumlah_selamat/meninggal/hilang columns otherwise
-# (per spec: keeps counts consistent once per-person data has been entered).
-KORBAN_JOIN = """
-    LEFT JOIN (
-        SELECT id_operasi,
-            SUM(status='Selamat') AS k_selamat,
-            SUM(status='Meninggal Dunia') AS k_meninggal,
-            SUM(status='Hilang') AS k_hilang,
-            COUNT(*) AS k_total
-        FROM korban GROUP BY id_operasi
-    ) ka ON ka.id_operasi = o.id_operasi
-"""
-SELAMAT_EXPR = "CASE WHEN ka.k_total > 0 THEN ka.k_selamat ELSE o.jumlah_selamat END"
-MENINGGAL_EXPR = "CASE WHEN ka.k_total > 0 THEN ka.k_meninggal ELSE o.jumlah_meninggal END"
-HILANG_EXPR = "CASE WHEN ka.k_total > 0 THEN ka.k_hilang ELSE o.jumlah_hilang END"
-
-REF_TABLES = {
-    'kategori': ('ref_kategori', 'id_kategori', 'nama_kategori'),
-    'klasifikasi': ('ref_klasifikasi', 'id_klasifikasi', 'nama_klasifikasi'),
-    'sumber_berita': ('ref_sumber_berita', 'id_sumber', 'nama_sumber'),
-    'instansi': ('ref_instansi', 'id_instansi', 'nama_instansi'),
-    'peralatan': ('ref_peralatan', 'id_peralatan', 'nama_peralatan'),
-    'pos_unit': ('ref_pos_unit', 'id_pos', 'nama_pos'),
-}
+# ============================================================
+# CATATAN MIGRASI SKEMA
+# ============================================================
+# File ini sebelumnya ditulis untuk skema fully-normalized (operasi_sar,
+# korban, ref_kategori, ref_klasifikasi, ref_pos_unit, lokasi, dst).
+# Skema itu TIDAK dipakai -- database aktual memakai satu tabel flat
+# `kejadian_sar` (lihat keputusan hybrid di awal proyek). Semua query
+# di bawah sudah disesuaikan ke struktur kejadian_sar:
+#
+#   - kategori            : TEXT langsung (dulu id_kategori -> ref_kategori)
+#   - kategori_kejadian    : TEXT, isinya KLASIFIKASI detail (dulu nama_klasifikasi)
+#   - klasifikasi          : TEXT, kolom lama yang tidak lagi dipakai untuk filter
+#   - wilayah_mapped       : TEXT, bisa berisi multi-wilayah dipisah koma
+#                            (mis. "Surabaya, Sumenep") -- dipakai menggantikan
+#                            konsep id_pos/nama_pos yang tidak ada di kejadian_sar
+#   - s_org/md_org/h_org   : INT agregat (dulu dihitung dari tabel korban per-individu)
+#   - latitude_lkk/longitude_lkk       : dulu lokasi.latitude/longitude (lokasi kejadian)
+#   - latitude_ditemukan/longitude_ditemukan : dulu lokasi.latitude/longitude (lokasi ditemukan)
+#   - waktu_kejadian, waktu_lapor, waktu_berangkat, waktu_tiba, waktu_selesai,
+#     waktu_tempuh_menit, pob, status_operasi, durasi_operasi_hari : sudah sama namanya
+#
+# Endpoint yang DI-DROP karena butuh data relasional yang tidak ada di kejadian_sar:
+#   - /api/instansi-terlibat (butuh tabel operasi_instansi + ref_instansi)
+#   - /api/korban-agregat versi per-individu (butuh tabel korban: nama/usia/gender)
+#     -> diganti versi agregat sederhana dari kolom s_org/md_org/h_org
+#   - /api/ref/<tabel> untuk instansi & peralatan (tidak ada tabel referensinya lagi;
+#     kategori/klasifikasi/sumber_berita diganti endpoint /api/ref-nilai yang
+#     mengambil nilai DISTINCT langsung dari kejadian_sar)
+#   - /api/beban-pos -> diganti /api/beban-wilayah (pakai wilayah_mapped, bisa
+#     berisi multi-wilayah dipisah koma sehingga dihitung di Python, bukan SQL murni)
 
 
 def parse_multi(param_name):
@@ -38,25 +43,33 @@ def parse_multi(param_name):
     return out
 
 
-def build_filters(alias='o'):
+def build_filters():
+    """Bangun klausa WHERE dari query string ?tahun=&bulan=&kategori=&wilayah=."""
     tahun = parse_multi('tahun')
     bulan = parse_multi('bulan')
     kategori = parse_multi('kategori')
-    pos = parse_multi('pos')
+    wilayah = parse_multi('wilayah')
     conditions = []
     params = []
+
     if tahun:
-        conditions.append(f"{alias}.tahun IN ({','.join(['%s'] * len(tahun))})")
+        conditions.append(f"tahun IN ({','.join(['%s'] * len(tahun))})")
         params.extend(tahun)
     if bulan:
-        conditions.append(f"{alias}.bulan IN ({','.join(['%s'] * len(bulan))})")
+        conditions.append(f"bulan_angka IN ({','.join(['%s'] * len(bulan))})")
         params.extend(bulan)
     if kategori:
-        conditions.append(f"{alias}.id_kategori IN ({','.join(['%s'] * len(kategori))})")
+        conditions.append(f"kategori IN ({','.join(['%s'] * len(kategori))})")
         params.extend(kategori)
-    if pos:
-        conditions.append(f"{alias}.id_pos IN ({','.join(['%s'] * len(pos))})")
-        params.extend(pos)
+    if wilayah:
+        # wilayah_mapped bisa berisi multi-nilai dipisah koma (mis. "Surabaya, Sumenep"),
+        # jadi dicocokkan per-nilai pakai LIKE, bukan '=' murni.
+        wilayah_conds = []
+        for w in wilayah:
+            wilayah_conds.append("wilayah_mapped LIKE %s")
+            params.append(f"%{w}%")
+        conditions.append('(' + ' OR '.join(wilayah_conds) + ')')
+
     where_sql = (' AND ' + ' AND '.join(conditions)) if conditions else ''
     return where_sql, params
 
@@ -74,11 +87,10 @@ def kpi():
     where_sql, params = build_filters()
     row = query_one(
         f"""SELECT COUNT(*) AS total_kejadian,
-                   SUM(COALESCE({SELAMAT_EXPR},0)) AS total_selamat,
-                   SUM(COALESCE({MENINGGAL_EXPR},0)) AS total_meninggal,
-                   SUM(COALESCE({HILANG_EXPR},0)) AS total_hilang
-            FROM operasi_sar o
-            {KORBAN_JOIN}
+                   SUM(COALESCE(s_org,0)) AS total_selamat,
+                   SUM(COALESCE(md_org,0)) AS total_meninggal,
+                   SUM(COALESCE(h_org,0)) AS total_hilang
+            FROM kejadian_sar
             WHERE 1=1 {where_sql}""",
         params,
     )
@@ -99,33 +111,26 @@ def kpi():
 def operasi_list():
     where_sql, params = build_filters()
     rows = query_all(
-        f"""SELECT o.id_operasi, o.waktu_kejadian, o.tahun, o.bulan,
-                   o.id_kategori, kat.nama_kategori,
-                   o.id_klasifikasi, kl.nama_klasifikasi,
-                   o.nama_objek_terdampak, o.narasi_kejadian,
-                   lk.deskripsi AS lokasi_kejadian_deskripsi,
-                   lk.latitude AS lokasi_kejadian_lat, lk.longitude AS lokasi_kejadian_lon,
-                   ld.deskripsi AS lokasi_ditemukan_deskripsi,
-                   ld.latitude AS lokasi_ditemukan_lat, ld.longitude AS lokasi_ditemukan_lon,
-                   o.status_operasi,
-                   o.id_pos, p.nama_pos,
-                   o.waktu_lapor, o.waktu_berangkat, o.waktu_tiba, o.waktu_selesai,
-                   o.waktu_siap_menit, o.waktu_tempuh_menit,
-                   o.jarak_laut_nm, o.jarak_darat_km, o.jarak_dari_lkk_km,
-                   o.pob,
-                   {SELAMAT_EXPR} AS jumlah_selamat,
-                   {MENINGGAL_EXPR} AS jumlah_meninggal,
-                   {HILANG_EXPR} AS jumlah_hilang,
-                   o.durasi_operasi_hari
-            FROM operasi_sar o
-            {KORBAN_JOIN}
-            LEFT JOIN ref_kategori kat ON kat.id_kategori = o.id_kategori
-            LEFT JOIN ref_klasifikasi kl ON kl.id_klasifikasi = o.id_klasifikasi
-            LEFT JOIN ref_pos_unit p ON p.id_pos = o.id_pos
-            LEFT JOIN lokasi lk ON lk.id_lokasi = o.id_lokasi_kejadian
-            LEFT JOIN lokasi ld ON ld.id_lokasi = o.id_lokasi_ditemukan
+        f"""SELECT no_urut AS id_operasi, waktu_kejadian, tahun, bulan_angka AS bulan,
+                   kategori AS nama_kategori,
+                   kategori_kejadian AS nama_klasifikasi,
+                   jenis_kecelakaan AS narasi_kejadian,
+                   posisi_koordinat_area AS lokasi_kejadian_deskripsi,
+                   latitude_lkk AS lokasi_kejadian_lat, longitude_lkk AS lokasi_kejadian_lon,
+                   lokasi_ditemukan AS lokasi_ditemukan_deskripsi,
+                   latitude_ditemukan AS lokasi_ditemukan_lat, longitude_ditemukan AS lokasi_ditemukan_lon,
+                   status_operasi,
+                   wilayah_mapped,
+                   waktu_lapor, waktu_berangkat, waktu_tiba, waktu_selesai,
+                   waktu_siap, waktu_tempuh_menit,
+                   pob,
+                   s_org AS jumlah_selamat,
+                   md_org AS jumlah_meninggal,
+                   h_org AS jumlah_hilang,
+                   durasi_operasi_hari
+            FROM kejadian_sar
             WHERE 1=1 {where_sql}
-            ORDER BY o.waktu_kejadian DESC""",
+            ORDER BY waktu_kejadian DESC""",
         params,
     )
     return ok(rows)
@@ -135,11 +140,10 @@ def operasi_list():
 def komposisi_kejadian():
     where_sql, params = build_filters()
     rows = query_all(
-        f"""SELECT o.id_kategori, kat.nama_kategori, COUNT(*) AS jumlah
-            FROM operasi_sar o
-            JOIN ref_kategori kat ON kat.id_kategori = o.id_kategori
-            WHERE 1=1 {where_sql}
-            GROUP BY o.id_kategori, kat.nama_kategori
+        f"""SELECT kategori AS nama_kategori, COUNT(*) AS jumlah
+            FROM kejadian_sar
+            WHERE kategori IS NOT NULL {where_sql}
+            GROUP BY kategori
             ORDER BY jumlah DESC""",
         params,
     )
@@ -154,13 +158,11 @@ def top_klasifikasi():
     except ValueError:
         limit = 5
     rows = query_all(
-        f"""SELECT o.id_klasifikasi, kl.nama_klasifikasi, o.id_kategori, kat.nama_kategori,
+        f"""SELECT kategori_kejadian AS nama_klasifikasi, kategori AS nama_kategori,
                    COUNT(*) AS jumlah
-            FROM operasi_sar o
-            JOIN ref_klasifikasi kl ON kl.id_klasifikasi = o.id_klasifikasi
-            JOIN ref_kategori kat ON kat.id_kategori = o.id_kategori
-            WHERE 1=1 {where_sql}
-            GROUP BY o.id_klasifikasi, kl.nama_klasifikasi, o.id_kategori, kat.nama_kategori
+            FROM kejadian_sar
+            WHERE kategori_kejadian IS NOT NULL {where_sql}
+            GROUP BY kategori_kejadian, kategori
             ORDER BY jumlah DESC
             LIMIT %s""",
         params + [limit],
@@ -172,10 +174,10 @@ def top_klasifikasi():
 def status_dilaksanakan():
     where_sql, params = build_filters()
     rows = query_all(
-        f"""SELECT o.status_operasi, COUNT(*) AS jumlah
-            FROM operasi_sar o
+        f"""SELECT status_operasi, COUNT(*) AS jumlah
+            FROM kejadian_sar
             WHERE 1=1 {where_sql}
-            GROUP BY o.status_operasi""",
+            GROUP BY status_operasi""",
         params,
     )
     tidak = 0
@@ -192,11 +194,10 @@ def status_dilaksanakan():
 def status_hasil():
     where_sql, params = build_filters()
     row = query_one(
-        f"""SELECT SUM(COALESCE({SELAMAT_EXPR},0)) AS selamat,
-                   SUM(COALESCE({MENINGGAL_EXPR},0)) AS meninggal,
-                   SUM(COALESCE({HILANG_EXPR},0)) AS hilang
-            FROM operasi_sar o
-            {KORBAN_JOIN}
+        f"""SELECT SUM(COALESCE(s_org,0)) AS selamat,
+                   SUM(COALESCE(md_org,0)) AS meninggal,
+                   SUM(COALESCE(h_org,0)) AS hilang
+            FROM kejadian_sar
             WHERE 1=1 {where_sql}""",
         params,
     )
@@ -211,64 +212,47 @@ def status_hasil():
 def tren_bulanan():
     where_sql, params = build_filters()
     rows = query_all(
-        f"""SELECT o.bulan, o.id_kategori, kat.nama_kategori, COUNT(*) AS jumlah
-            FROM operasi_sar o
-            JOIN ref_kategori kat ON kat.id_kategori = o.id_kategori
-            WHERE 1=1 {where_sql}
-            GROUP BY o.bulan, o.id_kategori, kat.nama_kategori
-            ORDER BY o.bulan""",
+        f"""SELECT bulan_angka AS bulan, kategori AS nama_kategori, COUNT(*) AS jumlah
+            FROM kejadian_sar
+            WHERE kategori IS NOT NULL AND bulan_angka IS NOT NULL {where_sql}
+            GROUP BY bulan_angka, kategori
+            ORDER BY bulan_angka""",
         params,
     )
     return ok(rows)
 
 
-@public_bp.route('/beban-pos')
-def beban_pos():
+@public_bp.route('/beban-wilayah')
+def beban_wilayah():
+    """Pengganti /api/beban-pos lama. wilayah_mapped bisa berisi multi-wilayah
+    dipisah koma, jadi dipecah dulu di Python sebelum dihitung -- SQL biasa
+    tidak bisa mengelompokkan nilai gabungan seperti itu dengan bersih."""
     where_sql, params = build_filters()
     rows = query_all(
-        f"""SELECT o.id_pos, p.nama_pos, COUNT(*) AS jumlah
-            FROM operasi_sar o
-            JOIN ref_pos_unit p ON p.id_pos = o.id_pos
-            WHERE 1=1 {where_sql}
-            GROUP BY o.id_pos, p.nama_pos
-            ORDER BY jumlah DESC""",
+        f"""SELECT wilayah_mapped
+            FROM kejadian_sar
+            WHERE wilayah_mapped IS NOT NULL AND wilayah_mapped != '' {where_sql}""",
         params,
     )
-    return ok(rows)
-
-
-@public_bp.route('/instansi-terlibat')
-def instansi_terlibat():
-    where_sql, params = build_filters()
-    try:
-        limit = int(request.args.get('limit', 10))
-    except ValueError:
-        limit = 10
-    rows = query_all(
-        f"""SELECT oi.id_instansi, i.nama_instansi,
-                   COUNT(DISTINCT oi.id_operasi) AS jumlah_operasi,
-                   SUM(oi.jumlah_personel) AS total_personel
-            FROM operasi_instansi oi
-            JOIN operasi_sar o ON o.id_operasi = oi.id_operasi
-            JOIN ref_instansi i ON i.id_instansi = oi.id_instansi
-            WHERE 1=1 {where_sql}
-            GROUP BY oi.id_instansi, i.nama_instansi
-            ORDER BY jumlah_operasi DESC
-            LIMIT %s""",
-        params + [limit],
-    )
-    return ok(rows)
+    counter = {}
+    for r in rows:
+        for w in (r['wilayah_mapped'] or '').split(','):
+            w = w.strip()
+            if w:
+                counter[w] = counter.get(w, 0) + 1
+    hasil = [{'nama_wilayah': k, 'jumlah': v} for k, v in counter.items()]
+    hasil.sort(key=lambda x: x['jumlah'], reverse=True)
+    return ok(hasil)
 
 
 @public_bp.route('/sumber-berita')
 def sumber_berita():
     where_sql, params = build_filters()
     rows = query_all(
-        f"""SELECT o.id_sumber, s.nama_sumber, COUNT(*) AS jumlah
-            FROM operasi_sar o
-            LEFT JOIN ref_sumber_berita s ON s.id_sumber = o.id_sumber
+        f"""SELECT sumber_berita AS nama_sumber, COUNT(*) AS jumlah
+            FROM kejadian_sar
             WHERE 1=1 {where_sql}
-            GROUP BY o.id_sumber, s.nama_sumber
+            GROUP BY sumber_berita
             ORDER BY jumlah DESC""",
         params,
     )
@@ -280,12 +264,12 @@ def waktu_kejadian():
     where_sql, params = build_filters()
     row = query_one(
         f"""SELECT
-                SUM(CASE WHEN HOUR(o.waktu_kejadian) < 6 THEN 1 ELSE 0 END) AS dini,
-                SUM(CASE WHEN HOUR(o.waktu_kejadian) >= 6 AND HOUR(o.waktu_kejadian) < 12 THEN 1 ELSE 0 END) AS pagi,
-                SUM(CASE WHEN HOUR(o.waktu_kejadian) >= 12 AND HOUR(o.waktu_kejadian) < 18 THEN 1 ELSE 0 END) AS siang,
-                SUM(CASE WHEN HOUR(o.waktu_kejadian) >= 18 THEN 1 ELSE 0 END) AS malam
-            FROM operasi_sar o
-            WHERE 1=1 {where_sql}""",
+                SUM(CASE WHEN HOUR(waktu_kejadian) < 6 THEN 1 ELSE 0 END) AS dini,
+                SUM(CASE WHEN HOUR(waktu_kejadian) >= 6 AND HOUR(waktu_kejadian) < 12 THEN 1 ELSE 0 END) AS pagi,
+                SUM(CASE WHEN HOUR(waktu_kejadian) >= 12 AND HOUR(waktu_kejadian) < 18 THEN 1 ELSE 0 END) AS siang,
+                SUM(CASE WHEN HOUR(waktu_kejadian) >= 18 THEN 1 ELSE 0 END) AS malam
+            FROM kejadian_sar
+            WHERE waktu_kejadian IS NOT NULL {where_sql}""",
         params,
     )
     return ok({
@@ -301,12 +285,12 @@ def durasi_operasi():
     where_sql, params = build_filters()
     row = query_one(
         f"""SELECT
-                SUM(CASE WHEN o.durasi_operasi_hari < 1 THEN 1 ELSE 0 END) AS b1,
-                SUM(CASE WHEN o.durasi_operasi_hari >= 1 AND o.durasi_operasi_hari < 3 THEN 1 ELSE 0 END) AS b2,
-                SUM(CASE WHEN o.durasi_operasi_hari >= 3 AND o.durasi_operasi_hari < 7 THEN 1 ELSE 0 END) AS b3,
-                SUM(CASE WHEN o.durasi_operasi_hari >= 7 THEN 1 ELSE 0 END) AS b4
-            FROM operasi_sar o
-            WHERE o.durasi_operasi_hari IS NOT NULL {where_sql}""",
+                SUM(CASE WHEN durasi_operasi_hari < 1 THEN 1 ELSE 0 END) AS b1,
+                SUM(CASE WHEN durasi_operasi_hari >= 1 AND durasi_operasi_hari < 3 THEN 1 ELSE 0 END) AS b2,
+                SUM(CASE WHEN durasi_operasi_hari >= 3 AND durasi_operasi_hari < 7 THEN 1 ELSE 0 END) AS b3,
+                SUM(CASE WHEN durasi_operasi_hari >= 7 THEN 1 ELSE 0 END) AS b4
+            FROM kejadian_sar
+            WHERE durasi_operasi_hari IS NOT NULL {where_sql}""",
         params,
     )
     return ok({
@@ -317,47 +301,49 @@ def durasi_operasi():
     })
 
 
-AGE_BUCKETS = [
-    ('<18', 0, 17), ('18-30', 18, 30), ('31-45', 31, 45), ('46-60', 46, 60), ('60+', 61, 999),
-]
-
-
 @public_bp.route('/korban-agregat')
 def korban_agregat():
+    """Versi sederhana pengganti endpoint lama yang butuh tabel korban
+    per-individu (nama/usia/gender). kejadian_sar cuma simpan angka
+    agregat, jadi cukup jumlahkan tiga kolom itu -- tanpa breakdown
+    usia/gender karena datanya memang tidak ada di skema ini."""
     where_sql, params = build_filters()
-    rows = query_all(
-        f"""SELECT k.jenis_kelamin, k.usia, k.status
-            FROM korban k
-            JOIN operasi_sar o ON o.id_operasi = k.id_operasi
+    row = query_one(
+        f"""SELECT SUM(COALESCE(s_org,0)) AS selamat,
+                   SUM(COALESCE(md_org,0)) AS meninggal,
+                   SUM(COALESCE(h_org,0)) AS hilang
+            FROM kejadian_sar
             WHERE 1=1 {where_sql}""",
         params,
     )
-    gender = {'L': 0, 'P': 0}
-    status_count = {'Selamat': 0, 'Meninggal Dunia': 0, 'Hilang': 0}
-    age_buckets = {label: 0 for label, _, _ in AGE_BUCKETS}
-    for r in rows:
-        if r['jenis_kelamin'] in gender:
-            gender[r['jenis_kelamin']] += 1
-        if r['status'] in status_count:
-            status_count[r['status']] += 1
-        if r['usia'] is not None:
-            for label, lo, hi in AGE_BUCKETS:
-                if lo <= r['usia'] <= hi:
-                    age_buckets[label] += 1
-                    break
+    selamat = row['selamat'] or 0
+    meninggal = row['meninggal'] or 0
+    hilang = row['hilang'] or 0
     return ok({
-        'total_korban': len(rows),
-        'jenis_kelamin': gender,
-        'status': status_count,
-        'rentang_usia': age_buckets,
+        'total_korban': selamat + meninggal + hilang,
+        'status': {'Selamat': selamat, 'Meninggal Dunia': meninggal, 'Hilang': hilang},
     })
 
 
-@public_bp.route('/ref/<nama_tabel>')
-def ref_table(nama_tabel):
-    if nama_tabel not in REF_TABLES:
-        return fail('Tabel referensi tidak dikenal.', 404)
-    table, id_col, name_col = REF_TABLES[nama_tabel]
-    extra = ', status' if table == 'ref_pos_unit' else ''
-    rows = query_all(f"SELECT {id_col}, {name_col}{extra} FROM {table} ORDER BY {id_col}")
+@public_bp.route('/ref-nilai/<nama_kolom>')
+def ref_nilai(nama_kolom):
+    """Pengganti /api/ref/<tabel> lama. Karena tidak ada lagi tabel
+    referensi terpisah, dropdown filter diisi dari nilai DISTINCT
+    kolom terkait langsung di kejadian_sar. Whitelist ketat supaya
+    tidak bisa dipakai untuk baca kolom sembarang."""
+    allowed = {
+        'kategori': 'kategori',
+        'klasifikasi': 'kategori_kejadian',
+        'sumber_berita': 'sumber_berita',
+        'wilayah': 'wilayah_mapped',
+    }
+    if nama_kolom not in allowed:
+        return fail('Kolom referensi tidak dikenal.', 404)
+    kolom = allowed[nama_kolom]
+    rows = query_all(
+        f"""SELECT DISTINCT {kolom} AS nilai
+            FROM kejadian_sar
+            WHERE {kolom} IS NOT NULL AND {kolom} != ''
+            ORDER BY {kolom}"""
+    )
     return ok(rows)
