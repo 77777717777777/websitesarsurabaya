@@ -9,7 +9,18 @@
 const MONTHS_FULL = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
 const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 const CAT_COLORS = ['#FFE066','#FFB020','#FF7A1A','#D6480F','#7A2E0E'];
-
+const KATEGORI_LABEL_OVERRIDES = {
+  'BENCANA': 'Bencana',
+  'KECELAKAAN DGN PENANGANAN KHUSUS': 'Kecelakaan dengan Penanganan Khusus',
+  'KECELAKAAN KAPAL': 'Kecelakaan Kapal',
+  'KECELAKAAN PESAWAT UDARA': 'Kecelakaan Pesawat Udara',
+  'KONDISI YANG MEMBAHAYAKAN JIWA MANUSIA': 'Kondisi yang Membahayakan Jiwa Manusia',
+};
+function toDisplayKategoriLabel(raw){
+  if (!raw) return raw;
+  if (KATEGORI_LABEL_OVERRIDES[raw]) return KATEGORI_LABEL_OVERRIDES[raw];
+  return String(raw).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
 function $(id){ return document.getElementById(id); }
 
 /* Tahun kalender berjalan belum tentu punya data 12 bulan penuh -- tandai dengan
@@ -19,6 +30,7 @@ function isPartialYear(year){
   return year === new Date().getFullYear();
 }
 function formatTahunLabel(year){
+  if (year == null) return 'Semua Tahun';
   return isPartialYear(year) ? year + '*' : String(year);
 }
 
@@ -109,7 +121,7 @@ let state = {
    setiap kali filter Tahun berubah. */
 const WILAYAH_DEFAULT_EXCLUDED = ['Banyuwangi', 'Jember'];
 function computeDefaultActiveWilayah(year){
-  if (year >= 2026) {
+  if (year != null && year >= 2026) {
     return WILAYAH_LIST.filter(w => !WILAYAH_DEFAULT_EXCLUDED.includes(w.label)).map(w=>w.id);
   }
   return WILAYAH_LIST.map(w=>w.id);
@@ -295,14 +307,17 @@ document.addEventListener('click', (e)=>{
 });
 
 function buildTahunPanel(){
+  const optAll = `
+    <label class="ms-opt"><input type="radio" name="rb_tahun" value="all" ${state.year===null?'checked':''} onchange="onTahunToggle(this)">Semua Tahun</label>
+  `;
   const opts = YEARS_AVAILABLE.map(y => `
     <label class="ms-opt"><input type="radio" name="rb_tahun" value="${y}" ${y===state.year?'checked':''} onchange="onTahunToggle(this)">${formatTahunLabel(y)}</label>
   `).join('');
-  $('panel-tahun').innerHTML = `<div class="ms-list">${opts}</div>`;
+  $('panel-tahun').innerHTML = `<div class="ms-list">${optAll}${opts}</div>`;
   $('btn-tahun-text').textContent = 'Tahun: ' + formatTahunLabel(state.year);
 }
 function onTahunToggle(el){
-  state.year = parseInt(el.value, 10);
+  state.year = el.value === 'all' ? null : parseInt(el.value, 10);
   $('btn-tahun-text').textContent = 'Tahun: ' + formatTahunLabel(state.year);
   state.activeWilayah = computeDefaultActiveWilayah(state.year);
   buildWilayahPanel();
@@ -561,7 +576,14 @@ const WILAYAH_REAL_COORDS = {
   "Bojonegoro": [-7.15, 111.88],
   "Lamongan": [-7.12, 112.42],
 };
-
+function nearestWilayahForPoint(lat, lon){
+  let best = null, bestD = Infinity;
+  Object.entries(WILAYAH_REAL_COORDS).forEach(([label, ref])=>{
+    const d = (ref[0]-lat)**2 + (ref[1]-lon)**2;
+    if (d < bestD){ bestD = d; best = label; }
+  });
+  return best;
+}
 /* ================= PETA ASLI (Leaflet + basemap ganda + overlay KML + layer toggle) =================
    Tahap 1: dipakai untuk peta Beranda ('map-beranda') & mode fullscreen-nya ('mf-map-wrap').
    Peta lain (Peta Sebaran, Zona Prioritas, Prediksi, Mini Map Picker admin) MASIH pakai
@@ -597,9 +619,14 @@ const BASEMAPS = {
 const DEFAULT_BASEMAP = 'dark';
 const LAYER_TOGGLE_DEFS = [
   { key:'incident', label:'Operasi SAR' },
-  { key:'pos', label:'Wilayah' },
+  { key:'pos', label:'Unit/Pos SAR' },
   { key:'boundary', label:'Wilayah Operasi' },
 ];
+const DEFAULT_LAYER_VISIBLE = { incident:true, pos:true, boundary:false };
+const MAP_LAYER_VISIBLE_OVERRIDES = {};
+function getDefaultLayerVisible(containerId){
+  return { ...DEFAULT_LAYER_VISIBLE, ...(MAP_LAYER_VISIBLE_OVERRIDES[containerId] || {}) };
+}
 const LAYER_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>';
 const KML_BOUNDARY_URL = '/data/wilayah-kerja-sar-surabaya-boundary.kml';
 const JATIM_CENTER = [-7.5, 112.5];
@@ -614,14 +641,18 @@ function getOrCreateLeafletMap(containerId){
     center: JATIM_CENTER, zoom: JATIM_ZOOM, minZoom: 6, maxZoom: 19,
     attributionControl: true, zoomControl: true,
   });
-  const incidentLayer = L.layerGroup().addTo(map);
-  const posLayer = L.layerGroup().addTo(map);
-  const boundaryLayer = L.layerGroup().addTo(map);
+  const incidentLayer = L.layerGroup();
+  const posLayer = L.layerGroup();
+  const boundaryLayer = L.layerGroup();
+  const layerVisible = getDefaultLayerVisible(containerId);
+  if (layerVisible.incident) incidentLayer.addTo(map);
+  if (layerVisible.pos) posLayer.addTo(map);
+  if (layerVisible.boundary) boundaryLayer.addTo(map);
   entry = {
-    map, markersLayer: incidentLayer,
+    map, markersLayer: incidentLayer, // alias lama, tetap dipertahankan untuk kompatibilitas kode lain
     incidentLayer, posLayer, boundaryLayer,
     basemap: DEFAULT_BASEMAP, tileLayers: [],
-    layerVisible: { incident:true, pos:true, boundary:true },
+    layerVisible,
   };
   _leafletMaps[containerId] = entry;
   setBasemap(containerId, DEFAULT_BASEMAP, {initial:true});
@@ -654,6 +685,7 @@ function addLayerControl(containerId){
   const wrap = document.getElementById(containerId); if (!wrap) return;
   if (wrap.querySelector('.map-layer-btn')) return;
   const shiftClass = wrap.querySelector('.map-maximize-btn') ? ' shift-down' : '';
+  const layerVisible = getDefaultLayerVisible(containerId);
 
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -678,12 +710,13 @@ function addLayerControl(containerId){
       <div class="lp-divider"></div>
       <div class="lp-section-title">Layer</div>
       ${LAYER_TOGGLE_DEFS.map(d=>`
-        <label class="lp-layer-opt"><input type="checkbox" checked data-layer="${d.key}" onchange="onLayerPanelToggle('${containerId}', this)">${d.label}</label>
+        <label class="lp-layer-opt"><input type="checkbox" ${layerVisible[d.key] ? 'checked' : ''} data-layer="${d.key}" onchange="onLayerPanelToggle('${containerId}', this)">${d.label}</label>
       `).join('')}
     </div>
   `;
   document.body.appendChild(panel);
 }
+
 function toggleLayerPanel(containerId){
   document.querySelectorAll('.map-layer-panel.open').forEach(p=>{ if (p.id !== 'layerpanel-'+containerId) p.classList.remove('open'); });
   const panel = document.getElementById('layerpanel-'+containerId);
@@ -722,7 +755,14 @@ document.addEventListener('click', (e)=>{
   if (!e.target.closest('.map-layer-panel') && !e.target.closest('.map-layer-btn')){
     document.querySelectorAll('.map-layer-panel.open').forEach(p=>p.classList.remove('open'));
   }
-});
+});// Tutup panel layer otomatis saat halaman di-scroll -- karena panel pakai
+// position:fixed (dihitung relatif viewport), posisinya jadi basi begitu
+// konten di baliknya bergerak. Auto-close lebih aman daripada reposisi
+// live tiap event scroll (yang mahal secara performa).
+window.addEventListener('scroll', ()=>{
+  document.querySelectorAll('.map-layer-panel.open').forEach(p=>p.classList.remove('open'));
+}, { capture: true, passive: true });
+
 function onLayerPanelBasemap(containerId, key){ setBasemap(containerId, key); }
 function onLayerPanelToggle(containerId, checkbox){
   const entry = _leafletMaps[containerId]; if (!entry) return;
@@ -782,35 +822,44 @@ function renderIncidentMapLeaflet(containerId, rows, opts){
   }
 }
 
-function renderMapBufferLeaflet(containerId, zonaStats){
+function renderMapBufferLeaflet(containerId, operasiRows){
   const entry = getOrCreateLeafletMap(containerId);
   entry.map.invalidateSize();
-  entry.markersLayer.clearLayers();
-  if (entry.bufferLinesLayer){ entry.map.removeLayer(entry.bufferLinesLayer); entry.bufferLinesLayer = null; }
-  const linesLayer = L.layerGroup().addTo(entry.map);
+  entry.incidentLayer.clearLayers();
+  entry.posLayer.clearLayers();
+  if (entry.bufferLinesLayer){ entry.incidentLayer.removeLayer(entry.bufferLinesLayer); entry.bufferLinesLayer = null; }
+  const linesLayer = L.layerGroup().addTo(entry.incidentLayer);
   entry.bufferLinesLayer = linesLayer;
 
-  zonaStats.filter(z=>z.kejadian>0).forEach(z=>{
-    const ref = WILAYAH_REAL_COORDS[z.wilayah]; if (!ref || !z.ref) return;
-    const col = CATMAP[z.dominanCatId] ? CATMAP[z.dominanCatId].color : '#FF7A1A';
-    L.polyline([ref, z.ref], { color: col, weight:1.6, opacity:.5 })
-      .bindTooltip(`${z.kab} &rarr; ${z.wilayah}`, { sticky:true, className:'sar-pos-tooltip' })
+  const points = (operasiRows||[]).filter(o=>o.lokasi_kejadian_lat!=null && o.lokasi_kejadian_lon!=null);
+  const countPerWilayah = {};
+
+  points.forEach(o=>{
+    // Pakai wilayah_mapped ASLI dari data (bukan tebak-tebak jarak geografis) --
+    // supaya kejadian selalu ditautkan ke Pos sesuai catatan resmi di database,
+    // bukan ke pos yang cuma kebetulan paling dekat koordinatnya.
+    const wilayahLabel = o.wilayah_mapped ? o.wilayah_mapped.split(',')[0].trim() : null;
+    const ref = wilayahLabel ? WILAYAH_REAL_COORDS[wilayahLabel] : null;
+    if (!ref) return; // skip kalau wilayah_mapped kosong / bukan salah satu dari Pos yang punya koordinat referensi
+    countPerWilayah[wilayahLabel] = (countPerWilayah[wilayahLabel]||0) + 1;
+    const col = CATMAP[o.nama_kategori] ? CATMAP[o.nama_kategori].color : '#FF7A1A';
+    L.polyline([ref, [o.lokasi_kejadian_lat, o.lokasi_kejadian_lon]], { color: col, weight:1.2, opacity:.55 })
       .addTo(linesLayer);
-    L.circleMarker(z.ref, { radius: 4+Math.min(8,z.kejadian), color:'#0A0605', weight:1, fillColor:col, fillOpacity:.85 })
-      .bindTooltip(`${z.kab}: ${z.kejadian} kejadian`, { direction:'top', className:'sar-pos-tooltip' })
+    L.circleMarker([o.lokasi_kejadian_lat, o.lokasi_kejadian_lon], { radius:3.5, color:'#0A0605', weight:.8, fillColor:col, fillOpacity:.9 })
+      .bindTooltip(o.lokasi_kejadian_deskripsi || o.wilayah_mapped || '-', { direction:'top', className:'sar-pos-tooltip' })
       .addTo(linesLayer);
   });
 
   WILAYAH_LIST.filter(w=>state.activeWilayah.includes(w.id)).forEach(w=>{
     const ref = WILAYAH_REAL_COORDS[w.label]; if (!ref) return;
     const icon = L.divIcon({ className:'leaflet-pos-marker', html:'<div class="lp-dot"></div>', iconSize:[16,16], iconAnchor:[8,8] });
-    L.marker(ref, {icon, zIndexOffset:500}).bindTooltip(w.label, {direction:'top', className:'sar-pos-tooltip', offset:[0,-6]}).addTo(entry.markersLayer);
+    L.marker(ref, {icon, zIndexOffset:500}).bindTooltip(`${w.label}: ${countPerWilayah[w.label]||0} kejadian`, {direction:'top', className:'sar-pos-tooltip', offset:[0,-6]}).addTo(entry.posLayer);
   });
 
   const wrap = document.getElementById(containerId);
   let legend = wrap.querySelector('.map-legend');
   if (!legend){ legend = document.createElement('div'); legend.className='map-legend'; wrap.appendChild(legend); }
-  legend.innerHTML = `<div class="row"><span class="sw" style="background:var(--o-90)"></span>Wilayah</div><div class="row" style="color:var(--text-faint);">Garis = wilayah terkait, warna = kategori dominan</div>`;
+  legend.innerHTML = `<div class="row"><span class="sw" style="background:var(--o-90)"></span>Unit/Pos SAR</div><div class="row" style="color:var(--text-faint);">Garis = kejadian ditautkan ke pos sesuai data wilayah, warna = kategori kejadian</div>`;
 }
 
 /* Peta Jarak Temu: kolom jarak_dari_lkk_km TIDAK ADA di kejadian_sar (kolom 'jarak'
@@ -820,13 +869,13 @@ function renderMapBufferLeaflet(containerId, zonaStats){
 function renderMapJarakTemuLeaflet(containerId, operasiRows){
   const entry = getOrCreateLeafletMap(containerId);
   entry.map.invalidateSize();
-  entry.markersLayer.clearLayers();
-  if (entry.jtLinesLayer){ entry.map.removeLayer(entry.jtLinesLayer); entry.jtLinesLayer = null; }
+  entry.incidentLayer.clearLayers();
+  if (entry.jtLinesLayer){ entry.incidentLayer.removeLayer(entry.jtLinesLayer); entry.jtLinesLayer = null; }
   const wrap = document.getElementById(containerId);
   const oldEmpty = wrap.querySelector('.jt-empty-overlay');
   if (oldEmpty) oldEmpty.remove();
 
-  const rows = (operasiRows||[]).filter(o=> o.lokasi_kejadian_lat!=null && o.lokasi_ditemukan_lat!=null).slice(0,20);
+  const rows = (operasiRows||[]).filter(o=> o.lokasi_kejadian_lat!=null && o.lokasi_ditemukan_lat!=null);
   if (!rows.length){
     const overlay = document.createElement('div');
     overlay.className = 'jt-empty-overlay empty-state';
@@ -839,14 +888,14 @@ function renderMapJarakTemuLeaflet(containerId, operasiRows){
     return;
   }
 
-  const linesLayer = L.layerGroup().addTo(entry.map);
+  const linesLayer = L.layerGroup().addTo(entry.incidentLayer);
   entry.jtLinesLayer = linesLayer;
   rows.forEach(o=>{
     const from = [o.lokasi_kejadian_lat, o.lokasi_kejadian_lon];
     const to = [o.lokasi_ditemukan_lat, o.lokasi_ditemukan_lon];
     const label = o.lokasi_kejadian_deskripsi || o.wilayah_mapped || 'Operasi #'+o.id_operasi;
     L.polyline([from, to], { color:'#FFC98A', weight:1.4, opacity:.55, dashArray:'5,4' })
-      .bindTooltip(`${label}`, { sticky:true, className:'sar-pos-tooltip' })
+      .bindTooltip(`${label}`, { direction:'top', sticky:false, className:'sar-pos-tooltip' })
       .addTo(linesLayer);
     L.circleMarker(from, { radius:5, color:'#0A0605', weight:1, fillColor:'#FF5A4A', fillOpacity:.9 }).addTo(linesLayer);
     L.circleMarker(to, { radius:5, color:'#0A0605', weight:1, fillColor:'#5FBE7A', fillOpacity:.9 }).addTo(linesLayer);
@@ -887,8 +936,9 @@ function predictionLevelLabel(t){ if (t>=0.72) return 'Sangat Tinggi'; if (t>=0.
 function renderMapDensityLeaflet(containerId, operasiRows, zonaStats){
   const entry = getOrCreateLeafletMap(containerId);
   entry.map.invalidateSize();
-  entry.markersLayer.clearLayers();
-  if (entry.heatLayer){ entry.map.removeLayer(entry.heatLayer); entry.heatLayer = null; }
+  entry.incidentLayer.clearLayers();
+  entry.posLayer.clearLayers();
+  if (entry.heatLayer){ entry.incidentLayer.removeLayer(entry.heatLayer); entry.heatLayer = null; }
 
   const points = (operasiRows||[])
     .filter(o=>o.lokasi_kejadian_lat!=null && o.lokasi_kejadian_lon!=null)
@@ -897,16 +947,22 @@ function renderMapDensityLeaflet(containerId, operasiRows, zonaStats){
   entry.heatLayer = L.heatLayer(points, {
     radius: 32, blur: 28, maxZoom: 12, minOpacity: .25,
     gradient: { 0.2:'#4CAF50', 0.4:'#B5D33B', 0.6:'#FFEB3B', 0.8:'#FF9800', 1:'#E53935' },
-  }).addTo(entry.map);
+  }).addTo(entry.incidentLayer);
 
-  // Label jumlah kejadian per kelompok wilayah, ditaruh di titik referensi tiap wilayah
   const maxK = Math.max(1, ...zonaStats.map(z=>z.kejadian));
   zonaStats.forEach(z=>{
     if (!z.ref) return;
     const icon = L.divIcon({ className:'zona-density-label', html:`<div class="zdl-badge">${z.kejadian}</div>`, iconSize:[19,19], iconAnchor:[9,9] });
     L.marker(z.ref, {icon, zIndexOffset:600})
       .bindTooltip(`${z.kab}: ${z.kejadian} kejadian`, {direction:'top', className:'sar-pos-tooltip', offset:[0,-10]})
-      .addTo(entry.markersLayer);
+      .addTo(entry.incidentLayer);
+  });
+
+  WILAYAH_LIST.filter(w=>state.activeWilayah.includes(w.id)).forEach(w=>{
+    const ref = WILAYAH_REAL_COORDS[w.label]; if (!ref) return;
+    const icon = L.divIcon({ className:'leaflet-pos-marker', html:'<div class="lp-dot"></div>', iconSize:[16,16], iconAnchor:[8,8] });
+    L.marker(ref, {icon, zIndexOffset:500}).bindTooltip(w.label, {direction:'top', className:'sar-pos-tooltip', offset:[0,-6]})
+      .addTo(entry.posLayer);
   });
 
   const wrap = document.getElementById(containerId);
@@ -958,7 +1014,7 @@ async function loadRefData(){
     Api.refNilai('kategori'), Api.refNilai('klasifikasi'),
     Api.refNilai('sumber_berita'), Api.refNilai('wilayah'),
   ]);
-  CATS = kat.data.map((k,i)=>({id:k.nilai, label:k.nilai, color: CAT_COLORS[i % CAT_COLORS.length]}));
+  CATS = kat.data.map((k,i)=>({id:k.nilai, label:toDisplayKategoriLabel(k.nilai), color: CAT_COLORS[i % CAT_COLORS.length]}));
   CATMAP = Object.fromEntries(CATS.map(c=>[c.id, c]));
   REF.klasifikasi = kl.data; REF.sumber = sb.data;
   // wilayah_mapped bisa berisi multi-nilai dipisah koma (mis. "Surabaya, Sumenep") --
@@ -978,7 +1034,21 @@ async function bootstrap(){
     const [, allOps] = await Promise.all([ loadRefData(), Api.operasi({}) ]);
     const years = Array.from(new Set((allOps.data||[]).map(o=>o.tahun))).sort((a,b)=>a-b);
     YEARS_AVAILABLE = years.length ? years : [new Date().getFullYear()];
-    state.year = YEARS_AVAILABLE[YEARS_AVAILABLE.length - 1];
+
+    // Tahun berjalan (2026 dst) tetap dimunculkan di filter Tahun walau belum ada
+    // satupun baris data tercatat -- supaya dashboard bisa dibuka dalam kondisi
+    // "kosong" utk tahun berjalan, bukan cuma bisa lihat tahun2 lama yang sudah ada datanya.
+    const currentYear = new Date().getFullYear();
+    if (!YEARS_AVAILABLE.includes(currentYear)) {
+      YEARS_AVAILABLE.push(currentYear);
+      YEARS_AVAILABLE.sort((a,b)=>a-b);
+    }
+
+    // Default tahun yang ditampilkan saat pertama buka dashboard tetap tahun
+    // terakhir yang ADA datanya (bukan otomatis lompat ke tahun berjalan yang
+    // masih kosong) -- supaya user tidak disambut dashboard kosong pas pertama buka.
+    const latestYearWithData = years.length ? years[years.length - 1] : YEARS_AVAILABLE[YEARS_AVAILABLE.length - 1];
+    state.year = latestYearWithData;
     state.activeWilayah = computeDefaultActiveWilayah(state.year);
   } catch (err) {
     document.querySelector('main.content').innerHTML = `<div class="card"><div class="card-body admin-loading" style="color:#FF9086;">
@@ -1052,9 +1122,9 @@ async function renderBeranda(){
   const dEl = $('chartDonutBeranda');
   if (dEl){
     charts.donutBeranda = new Chart(dEl, { type:'doughnut',
-      data:{ labels:komposisi.map(k=>k.nama_kategori), datasets:[{ data:komposisi.map(k=>k.jumlah), backgroundColor:komposisi.map(k=>CATMAP[k.nama_kategori]?CATMAP[k.nama_kategori].color:'#FF7A1A'), borderColor:'#0A0808', borderWidth:3 }] },
+      data:{ labels:komposisi.map(k=>toDisplayKategoriLabel(k.nama_kategori)), datasets:[{ data:komposisi.map(k=>k.jumlah), backgroundColor:komposisi.map(k=>CATMAP[k.nama_kategori]?CATMAP[k.nama_kategori].color:'#FF7A1A'), borderColor:'#0A0808', borderWidth:3 }] },
       options:{ cutout:'66%', plugins:{ legend:{display:false} } } });
-    renderLegendList('legend-beranda', komposisi.map(k=>({label:k.nama_kategori, color:CATMAP[k.nama_kategori]?CATMAP[k.nama_kategori].color:'#FF7A1A', value:k.jumlah})));
+    renderLegendList('legend-beranda', komposisi.map(k=>({label:toDisplayKategoriLabel(k.nama_kategori), color:CATMAP[k.nama_kategori]?CATMAP[k.nama_kategori].color:'#FF7A1A', value:k.jumlah})));
   }
 
   destroy('bebanPos');
@@ -1266,7 +1336,7 @@ async function renderZona(){
   const f = getActiveFilters();
   const operasiRes = await Api.operasi(f);
   const zonaStats = computeZonaStats(operasiRes.data);
-  renderMapBufferLeaflet('map-buffer', zonaStats);
+  renderMapBufferLeaflet('map-buffer', operasiRes.data);
   renderMapJarakTemuLeaflet('map-jaraktemu', operasiRes.data);
 
   const list = zonaStats.filter(z=>z.kejadian>0).slice(0, 10);
@@ -1308,20 +1378,85 @@ function onPeriodePrediksiToggle(el){
 }
 
 let PREDICTION_ZONES_CACHE = null;
+
+/* Proyeksi spasial per wilayah -- konsisten dengan logika chart "Estimasi Volume
+   Kesiapsiagaan" di renderPrediksi() (baseline musiman + growth rate tahun-ke-tahun),
+   tapi dihitung TERPISAH per kelompok wilayah (ZONA_DEF), bukan cuma total gabungan.
+   predMonthIdx (dropdown "Periode Prediksi") ikut menentukan bulan mana yang
+   diproyeksikan -- sebelumnya nilai ini tidak berpengaruh sama sekali ke peta. */
 async function computePredictionZones(){
   const f = getActiveFilters();
+  // Ambil histori TANPA filter tahun/bulan (butuh histori penuh utk hitung baseline & growth),
+  // tapi tetap ikut filter kategori & wilayah yang aktif di filterbar.
   const operasiRes = await Api.operasi({tahun:[], bulan:[], kategori:f.kategori, wilayah:f.wilayah});
-  const zonaStats = computeZonaStats(operasiRes.data);
-  const maxK = Math.max(1, ...zonaStats.map(z=>z.kejadian));
-  return zonaStats.map(z=> ({...z, level: Math.min(1, z.kejadian / maxK)}));
+  const rows = operasiRes.data || [];
+
+  // Tahun kalender yang sudah LENGKAP (bukan tahun berjalan yang masih parsial),
+  // sama seperti prinsip completeYears/baselineYear di renderPrediksi().
+  const currentRealYear = new Date().getFullYear();
+  const allYears = Array.from(new Set(rows.map(o=>o.tahun))).filter(y=>y!=null).sort((a,b)=>a-b);
+  const completeYears = allYears.filter(y => y < currentRealYear);
+  const yearsForCalc = completeYears.length ? completeYears.slice(-3) : allYears.slice(-3);
+
+  // periode yang mau diproyeksikan (bulan ke depan), ikut dropdown Periode Prediksi.
+  // Kalau user belum pilih periode, default ke proyeksi bulan depan (i=1) supaya tetap ada nilai.
+  const monthsAhead = (predMonthIdx === null || predMonthIdx === undefined) ? 1 : (predMonthIdx + 1);
+  const now = new Date();
+  const targetDate = new Date(now.getFullYear(), now.getMonth() + monthsAhead, 1);
+  const targetMonth = targetDate.getMonth(); // 0-11
+
+  const baselineYear = yearsForCalc.length ? yearsForCalc[yearsForCalc.length - 1] : null;
+
+  // Hitung total per wilayah per tahun (utk growth rate) + total per wilayah pada
+  // targetMonth di baselineYear (utk baseline musiman), masing2 pakai zona terdekat
+  // dari koordinat kejadian riil (sama seperti computeZonaStats).
+  const totalsPerZonaPerYear = ZONA_DEF.map(()=> ({}));   // [zonaIdx] -> {tahun: total}
+  const baselineMonthPerZona = ZONA_DEF.map(()=> 0);      // [zonaIdx] -> jumlah kejadian di targetMonth, baselineYear
+
+  rows.forEach(o=>{
+    if (o.lokasi_kejadian_lat == null || o.lokasi_kejadian_lon == null) return;
+    if (o.tahun == null || o.bulan == null) return;
+    const idx = nearestZonaIdx(o.lokasi_kejadian_lat, o.lokasi_kejadian_lon);
+    if (idx < 0) return;
+    totalsPerZonaPerYear[idx][o.tahun] = (totalsPerZonaPerYear[idx][o.tahun] || 0) + 1;
+    if (baselineYear != null && o.tahun === baselineYear && (o.bulan - 1) === targetMonth){
+      baselineMonthPerZona[idx]++;
+    }
+  });
+
+  // Growth rate per wilayah: rasio total kejadian dari tahun pertama ke tahun
+  // terakhir di yearsForCalc, di-root-kan per jumlah interval tahun (CAGR sederhana).
+  // Wilayah dengan histori terlalu tipis (total awal 0) growth-nya dianggap netral (1).
+  const growthPerZona = ZONA_DEF.map((_, idx)=>{
+    if (yearsForCalc.length < 2){
+      // Histori kurang dari 2 tahun lengkap -- tidak cukup untuk hitung tren, netral.
+      return 1;
+    }
+    const first = totalsPerZonaPerYear[idx][yearsForCalc[0]] || 0;
+    const last = totalsPerZonaPerYear[idx][yearsForCalc[yearsForCalc.length-1]] || 0;
+    if (first <= 0) return last > 0 ? 1.5 : 1; // ada kejadian baru muncul tapi tanpa baseline -> anggap naik moderat
+    const span = Math.max(1, yearsForCalc.length - 1);
+    return Math.pow(last / first, 1/span);
+  });
+
+  // Proyeksi mentah per wilayah = baseline musiman wilayah itu x growth rate wilayah itu.
+  const projectedPerZona = ZONA_DEF.map((_, idx)=> baselineMonthPerZona[idx] * growthPerZona[idx]);
+  const maxProjected = Math.max(0.0001, ...projectedPerZona);
+
+  return ZONA_DEF.map((z, idx)=> ({
+    ...z,
+    kejadian: baselineMonthPerZona[idx], // dipakai tooltip lama sbg referensi jumlah bulan acuan
+    projected: projectedPerZona[idx],
+    level: Math.min(1, projectedPerZona[idx] / maxProjected),
+  }));
 }
 
 function renderMapPrediksiSpasialLeaflet(containerId, zones){
   const wrap = document.getElementById(containerId); if (!wrap) return;
   const entry = getOrCreateLeafletMap(containerId);
   entry.map.invalidateSize();
-  entry.markersLayer.clearLayers();
-  if (entry.heatLayer){ entry.map.removeLayer(entry.heatLayer); entry.heatLayer = null; }
+  entry.incidentLayer.clearLayers();
+  if (entry.heatLayer){ entry.incidentLayer.removeLayer(entry.heatLayer); entry.heatLayer = null; }
   const oldNote = wrap.querySelector('.map-note'); if (oldNote) oldNote.remove();
 
   if (predMonthIdx === null || predMonthIdx === undefined){
@@ -1336,7 +1471,7 @@ function renderMapPrediksiSpasialLeaflet(containerId, zones){
   entry.heatLayer = L.heatLayer(points, {
     radius: 40, blur: 34, maxZoom: 12, max: 1, minOpacity: .28,
     gradient: { 0.2:'#4CAF50', 0.4:'#B5D33B', 0.6:'#FFEB3B', 0.8:'#FF9800', 1:'#E53935' },
-  }).addTo(entry.map);
+  }).addTo(entry.incidentLayer);
 
   zones.filter(z=>z.ref).forEach(z=>{
     const lvl = predictionLevelLabel(z.level);
@@ -1344,7 +1479,7 @@ function renderMapPrediksiSpasialLeaflet(containerId, zones){
     const icon = L.divIcon({ className:'', html:`<div style="width:12px;height:12px;border-radius:50%;background:${col};border:1.4px solid #0A0605;box-shadow:0 0 6px ${col};"></div>`, iconSize:[12,12], iconAnchor:[6,6] });
     L.marker(z.ref, {icon, zIndexOffset:600})
       .bindTooltip(`<b>${z.kab}</b><br>Potensi: ${lvl}<br>Periode: ${PRED_MONTHS[predMonthIdx]}`, {direction:'top', className:'sar-pos-tooltip', offset:[0,-8]})
-      .addTo(entry.markersLayer);
+      .addTo(entry.incidentLayer);
   });
 
   const maxLevel = Math.max(0.01, ...zones.map(z=>z.level));
@@ -1887,7 +2022,8 @@ async function openMapFullscreen(kind){
     $('mf-title-text').textContent = 'Peta Sebaran Kejadian SAR';
     if (mfPanel) mfPanel.style.display = '';
     const yearSel = $('mf-year-select');
-    yearSel.innerHTML = YEARS_AVAILABLE.map(y=>`<option value="${y}" ${y===state.year?'selected':''}>${formatTahunLabel(y)}</option>`).join('');
+    const allOpt = `<option value="all" ${state.year===null?'selected':''}>Semua Tahun</option>`;
+    yearSel.innerHTML = allOpt + YEARS_AVAILABLE.map(y=>`<option value="${y}" ${y===state.year?'selected':''}>${formatTahunLabel(y)}</option>`).join('');
     await renderFsPeta(state.year);
   } else if (kind === 'jaraktemu'){
     $('mf-title-text').textContent = 'Peta Jarak Temu';
@@ -1898,12 +2034,15 @@ async function openMapFullscreen(kind){
 function closeMapFullscreen(){ $('map-fullscreen-overlay').classList.remove('open'); }
 
 async function onMfYearChange(sel){
-  if (fsMapKind === 'peta') await renderFsPeta(parseInt(sel.value,10));
+  if (fsMapKind === 'peta') {
+    const val = sel.value === 'all' ? null : parseInt(sel.value, 10);
+    await renderFsPeta(val);
+  }
 }
 
 async function renderFsPeta(year){
   clearFsMapLayers();
-  const f = getActiveFilters(); f.tahun = [year];
+  const f = getActiveFilters(); f.tahun = year != null ? [year] : [];
   const res = await Api.operasi(f);
   renderIncidentMapLeaflet('mf-map-wrap', res.data, {legend: false});
   $('mf-legend').innerHTML = `<div class="row" style="color:var(--text-mid); margin-bottom:6px; font-weight:700;">Total ${res.data.length} operasi (tahun ${formatTahunLabel(year)})</div>` +
