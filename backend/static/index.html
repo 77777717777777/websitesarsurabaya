@@ -319,6 +319,10 @@
     background:radial-gradient(ellipse at 50% 50%, #0F0906, #050302) !important;
     font-family:var(--sans); z-index:1;
   }
+  .leaflet-interactive:focus,
+  .leaflet-container path:focus{
+    outline: none;
+}
   .leaflet-control-attribution{
     background:rgba(14,10,7,.75) !important; color:var(--text-faint) !important; font-size:8.5px !important;
     border-radius:var(--r) 0 0 0 !important; padding:1px 6px !important;
@@ -333,12 +337,12 @@
     width:16px; height:16px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #FFC98A, #FF7A1A 55%, #A63D12 100%);
     border:1.5px solid rgba(255,214,170,.7); box-shadow:0 0 0 5px rgba(255,122,26,.22);
   }
-  .leaflet-tooltip.sar-pos-tooltip{
-    background:rgba(16,11,8,.95); border:1px solid var(--glass-brd-hi); color:var(--text-hi); font-size:10.5px;
-    border-radius:6px; padding:6px 10px;
-    white-space:normal; max-width:220px; line-height:1.5;
+  .leaflet-tooltip.sar-pred-tooltip{
+    background:rgba(16,11,8,.95); border:1px solid var(--glass-brd-hi); color:var(--text-hi); font-size:11px;
+    border-radius:6px; padding:7px 11px;
+    white-space:nowrap; line-height:1.6;
   }
-  .leaflet-tooltip.sar-pos-tooltip::before{border-top-color:rgba(16,11,8,.95);}
+  .leaflet-tooltip.sar-pred-tooltip::before{border-top-color:rgba(16,11,8,.95);}let-tooltip.sar-pos-tooltip::before{border-top-color:rgba(16,11,8,.95);}
 
   .map-fullscreen-overlay{
     position:fixed; inset:0; z-index:900; display:none; flex-direction:column;
@@ -562,7 +566,7 @@
   .admin-field-wide{grid-column:span 3;}
   @media (max-width:900px){ .admin-field-wide{grid-column:span 2;} }
   .admin-map-label{display:block; font-size:10.5px; color:var(--text-mid); font-family:var(--display); font-weight:600; margin-bottom:8px;}
-  .admin-map-picker{height:240px;}
+  .admin-map-picker{height:340px;}
 
   .admin-error-box{
     margin-top:14px; padding:11px 14px; border-radius:var(--r); background:rgba(255,90,74,.1); border:1px solid rgba(255,90,74,.32);
@@ -891,16 +895,6 @@
           </div>
           <div class="card-body" style="display:flex; flex-direction:column; gap:14px;">
             <div class="map-wrap prediction-map" id="map-prediksi-spasial" style="height:420px;"></div>
-          </div>
-        </div>
-        <div class="grid-2 wide-left">
-          <div class="card">
-            <div class="card-head"><h3>Estimasi Volume Kesiapsiagaan</h3><span class="sub">tren historis + proyeksi 3 bulan ke depan (putus-putus)</span></div>
-            <div class="card-body"><div class="chart-box tall"><canvas id="chartProyeksi"></canvas></div></div>
-          </div>
-          <div class="card">
-            <div class="card-head"><h3>Fokus Siaga Kategori Dominan</h3><span class="sub">antisipasi kesiapsiagaan alat &amp; personel 3 bulan ke depan</span></div>
-            <div class="card-body"><div class="chart-box tall"><canvas id="chartPrediksiKategori"></canvas></div></div>
           </div>
         </div>
         <div class="alert-card" id="alert-card"></div>

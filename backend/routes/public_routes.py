@@ -1,5 +1,7 @@
 from flask import Blueprint, request, jsonify
 from db import query_all, query_one
+from db import query_all
+from services.prediksi_service import hitung_composite_index
 
 public_bp = Blueprint('public', __name__, url_prefix='/api')
 
@@ -220,6 +222,18 @@ def tren_bulanan():
         params,
     )
     return ok(rows)
+
+@public_bp.route('/prediksi-zona-rawan')
+def prediksi_zona_rawan():
+    rows = query_all("""
+        SELECT latitude_lkk, longitude_lkk, waktu_kejadian
+        FROM kejadian_sar
+        WHERE latitude_lkk IS NOT NULL
+          AND longitude_lkk IS NOT NULL
+          AND waktu_kejadian IS NOT NULL
+    """)
+    hasil = hitung_composite_index(rows)
+    return jsonify({'success': True, 'data': hasil, 'message': 'Prediksi zona rawan berhasil dihitung.'})
 
 
 @public_bp.route('/beban-wilayah')

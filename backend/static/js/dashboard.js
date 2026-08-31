@@ -105,7 +105,27 @@ let REF = { klasifikasi:[], sumber:[] }; // instansi & peralatan di-drop, tidak 
 let YEARS_AVAILABLE = [];
 let auth = { isLoggedIn:false, username:null, nama_lengkap:null };
 let charts = {};
-let predMonthIdx = null; // 0,1,2 -> 3 bulan proyeksi ke depan
+let predMonthKey = null;              // format "2026-09", ganti predMonthIdx lama
+let PREDIKSI_ZONA_CACHE = null;       // { metadata, prediksi: { "2026-09": {...}, ... } }
+let KABKOTA_GEOJSON_CACHE = null;
+
+const WARNA_LEVEL = { 'Rendah': '#4CAF50', 'Sedang': '#FF9800', 'Tinggi': '#E53935' };
+const WARNA_LUAR_SCOPE = '#4A4A4A';
+
+async function fetchPrediksiZonaRawan(){
+  if (PREDIKSI_ZONA_CACHE) return PREDIKSI_ZONA_CACHE;
+  const res = await fetch('/api/prediksi-zona-rawan');
+  const json = await res.json();
+  PREDIKSI_ZONA_CACHE = json.data;
+  return PREDIKSI_ZONA_CACHE;
+}
+
+async function fetchKabkotaGeoJSON(){
+  if (KABKOTA_GEOJSON_CACHE) return KABKOTA_GEOJSON_CACHE;
+  const res = await fetch('/data/kabkota-jatim.geojson');
+  KABKOTA_GEOJSON_CACHE = await res.json();
+  return KABKOTA_GEOJSON_CACHE;
+}// 0,1,2 -> 3 bulan proyeksi ke depan
 
 let state = {
   page: 'beranda',
@@ -592,7 +612,7 @@ const BASEMAPS = {
   dark: {
     label: 'Gelap',
     layers: [
-      { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=cb1_2a59_1_c973b62e3735c7452aa7b930',
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
         subdomains: 'abcd', maxZoom: 19 },
     ],
@@ -656,7 +676,7 @@ function getOrCreateLeafletMap(containerId){
   };
   _leafletMaps[containerId] = entry;
   setBasemap(containerId, DEFAULT_BASEMAP, {initial:true});
-  if (containerId !== 'admin-map-picker') addLayerControl(containerId); // mini picker admin dikecualikan
+  addLayerControl(containerId, { basemapOnly: containerId === 'admin-map-picker' });
   loadKmlBoundaryLayer(containerId);
   return entry;
 }
@@ -681,7 +701,8 @@ function setBasemap(containerId, key, opts){
   }
 }
 
-function addLayerControl(containerId){
+function addLayerControl(containerId, opts){
+  opts = opts || {};
   const wrap = document.getElementById(containerId); if (!wrap) return;
   if (wrap.querySelector('.map-layer-btn')) return;
   const shiftClass = wrap.querySelector('.map-maximize-btn') ? ' shift-down' : '';
@@ -690,10 +711,17 @@ function addLayerControl(containerId){
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'map-layer-btn' + shiftClass;
-  btn.title = 'Layer & tema peta';
+  btn.title = opts.basemapOnly ? 'Tema peta' : 'Layer & tema peta';
   btn.innerHTML = LAYER_ICON_SVG;
   btn.onclick = (e)=>{ e.stopPropagation(); toggleLayerPanel(containerId); };
   wrap.appendChild(btn);
+
+  const layerSection = opts.basemapOnly ? '' : `
+      <div class="lp-divider"></div>
+      <div class="lp-section-title">Layer</div>
+      ${LAYER_TOGGLE_DEFS.map(d=>`
+        <label class="lp-layer-opt"><input type="checkbox" ${layerVisible[d.key] ? 'checked' : ''} data-layer="${d.key}" onchange="onLayerPanelToggle('${containerId}', this)">${d.label}</label>
+      `).join('')}`;
 
   const panel = document.createElement('div');
   panel.className = 'map-layer-panel';
@@ -707,11 +735,7 @@ function addLayerControl(containerId){
             <div class="sw"></div><div class="lbl">${conf.label}</div>
           </div>`).join('')}
       </div>
-      <div class="lp-divider"></div>
-      <div class="lp-section-title">Layer</div>
-      ${LAYER_TOGGLE_DEFS.map(d=>`
-        <label class="lp-layer-opt"><input type="checkbox" ${layerVisible[d.key] ? 'checked' : ''} data-layer="${d.key}" onchange="onLayerPanelToggle('${containerId}', this)">${d.label}</label>
-      `).join('')}
+      ${layerSection}
     </div>
   `;
   document.body.appendChild(panel);
@@ -1148,14 +1172,42 @@ async function renderBeranda(){
 
 
   const top = zonaStats[0] || {kab:'-', kejadian:0, wilayah:'-', dominanCatId:null};
+  const kabNameOnly = top.kab.replace(/^Kab\.\s*|^Kota\s*/i, '').trim();
+  const showWilayah = top.wilayah && top.wilayah !== kabNameOnly;
+  const wilayahAgg = {};
+  (operasiRes.data||[]).forEach(o=>{
+    const w = o.wilayah_mapped ? o.wilayah_mapped.split(',')[0].trim() : null;
+    if (!w) return;
+    wilayahAgg[w] ??= {jumlah:0, catCount:{}};
+    wilayahAgg[w].jumlah++;
+    wilayahAgg[w].catCount[o.nama_kategori] = (wilayahAgg[w].catCount[o.nama_kategori]||0) + 1;
+  });
+  const topWilayahEntry = Object.entries(wilayahAgg).sort((a,b)=>b[1].jumlah-a[1].jumlah)[0];
+  let zonaTxt;
+  if (topWilayahEntry){
+    const [wName, wData] = topWilayahEntry;
+    let domCat = null, domN = -1;
+    Object.entries(wData.catCount).forEach(([k,v])=>{ if (v > domN){ domN = v; domCat = k; } });
+    const domLabelZona = domCat != null && CATMAP[domCat] ? CATMAP[domCat].label.toLowerCase() : null;
+    zonaTxt = `Unit siaga wilayah ${wName} menangani operasi terbanyak pada periode terpilih dengan ${wData.jumlah} operasi${domLabelZona ? ', didominasi ' + domLabelZona : ''}. Prioritaskan penguatan personel dan peralatan di unit ini.`;
+  } else {
+    zonaTxt = 'Belum ada operasi tercatat pada periode dan filter yang dipilih.';
+  }
   const successRate = kpi.korban_ditangani ? Math.round((kpi.selamat/kpi.korban_ditangani)*100) : 0;
-  const domLabel = top.dominanCatId != null && CATMAP[top.dominanCatId] ? CATMAP[top.dominanCatId].label.toLowerCase() : '-';
-  $('insight-panel').innerHTML = `
-    <div class="insight crit"><div class="tag">Zona Kritis</div><div class="txt">${top.kab} mencatat ${top.kejadian} kejadian pada periode terpilih, didominasi ${domLabel}, perlu penguatan kesiapsiagaan di wilayah ${top.wilayah}.</div></div>
-    <div class="insight pos"><div class="tag">Tingkat Keberhasilan</div><div class="txt">${successRate}% korban berhasil diselamatkan pada periode ini dari total ${kpi.korban_ditangani.toLocaleString('id-ID')} korban yang ditangani.</div></div>
-    <div class="insight info"><div class="tag">Cakupan Data</div><div class="txt">Menampilkan ${kpi.total_kejadian} operasi SAR tercatat sesuai filter aktif (tahun ${formatTahunLabel(state.year)}, ${state.activeCats.length} kategori, ${state.activeWilayah.length} wilayah).</div></div>`;
+  const keberhasilanTxt = kpi.korban_ditangani
+    ? `${successRate}% korban berhasil diselamatkan (${kpi.selamat.toLocaleString('id-ID')} dari ${kpi.korban_ditangani.toLocaleString('id-ID')} korban yang ditangani), ${kpi.meninggal.toLocaleString('id-ID')} meninggal dunia, dan ${kpi.hilang.toLocaleString('id-ID')} belum ditemukan.`
+    : 'Belum ada korban tercatat pada periode dan filter yang dipilih.';
 
-  $('footnote-beranda').innerHTML = `<b>Catatan data:</b> Seluruh angka pada dashboard ini diambil langsung dari database <code>sar_db.kejadian_sar</code> melalui API backend, bukan data dummy statis di frontend.`;
+  const totalKomposisi = komposisi.reduce((a,k)=>a+k.jumlah,0);
+  const topKomposisi = totalKomposisi ? [...komposisi].sort((a,b)=>b.jumlah-a.jumlah)[0] : null;
+  const kategoriTxt = topKomposisi
+    ? `${toDisplayKategoriLabel(topKomposisi.nama_kategori)} adalah jenis kejadian paling sering pada periode ini, mencakup ${Math.round((topKomposisi.jumlah/totalKomposisi)*100)}% dari seluruh operasi SAR sesuai filter aktif.`
+    : 'Belum ada data kejadian pada periode dan filter yang dipilih.';
+
+  $('insight-panel').innerHTML = `
+    <div class="insight crit"><div class="tag">Zona Kritis</div><div class="txt">${zonaTxt}</div></div>
+    <div class="insight pos"><div class="tag">Tingkat Keberhasilan</div><div class="txt">${keberhasilanTxt}</div></div>
+    <div class="insight info"><div class="tag">Kategori Dominan</div><div class="txt">${kategoriTxt}</div></div>`;
 }
 
 /* ================= PETA ================= */
@@ -1356,23 +1408,22 @@ async function renderZona(){
 }
 
 /* ================= PREDIKSI SEBARAN LOKASI ================= */
-const PRED_MONTHS = [];
-function computePredMonths(){
-  PRED_MONTHS.length = 0;
-  const base = new Date();
-  for (let i=1;i<=3;i++){
-    const d = new Date(base.getFullYear(), base.getMonth()+i, 1);
-    PRED_MONTHS.push(MONTHS_SHORT[d.getMonth()] + ' ' + d.getFullYear());
-  }
-}
-computePredMonths();
-function buildPeriodePrediksiPanel(){
-  const items = PRED_MONTHS.map((m,i)=>`<label class="ms-opt"><input type="radio" name="rb_periode_prediksi" value="${i}" ${predMonthIdx===i?'checked':''} onchange="onPeriodePrediksiToggle(this)">${m}</label>`).join('');
+function buildPeriodePrediksiPanel(periodeKeys){
+  const items = (periodeKeys||[]).map(key=>{
+    const [y,m] = key.split('-');
+    const label = MONTHS_SHORT[parseInt(m,10)-1] + ' ' + y;
+    return `<label class="ms-opt"><input type="radio" name="rb_periode_prediksi" value="${key}" ${predMonthKey===key?'checked':''} onchange="onPeriodePrediksiToggle(this)">${label}</label>`;
+  }).join('');
   $('panel-periode-prediksi').innerHTML = `<div class="ms-list">${items}</div>`;
 }
+function periodeLabel(key){
+  if (!key) return '';
+  const [y,m] = key.split('-');
+  return MONTHS_SHORT[parseInt(m,10)-1] + ' ' + y;
+}
 function onPeriodePrediksiToggle(el){
-  predMonthIdx = parseInt(el.value, 10);
-  $('btn-periode-prediksi-text').textContent = 'Periode: ' + PRED_MONTHS[predMonthIdx];
+  predMonthKey = el.value;
+  $('btn-periode-prediksi-text').textContent = 'Periode: ' + periodeLabel(predMonthKey);
   $('panel-periode-prediksi').classList.remove('open');
   render();
 }
@@ -1384,203 +1435,95 @@ let PREDICTION_ZONES_CACHE = null;
    tapi dihitung TERPISAH per kelompok wilayah (ZONA_DEF), bukan cuma total gabungan.
    predMonthIdx (dropdown "Periode Prediksi") ikut menentukan bulan mana yang
    diproyeksikan -- sebelumnya nilai ini tidak berpengaruh sama sekali ke peta. */
-async function computePredictionZones(){
-  const f = getActiveFilters();
-  // Ambil histori TANPA filter tahun/bulan (butuh histori penuh utk hitung baseline & growth),
-  // tapi tetap ikut filter kategori & wilayah yang aktif di filterbar.
-  const operasiRes = await Api.operasi({tahun:[], bulan:[], kategori:f.kategori, wilayah:f.wilayah});
-  const rows = operasiRes.data || [];
 
-  // Tahun kalender yang sudah LENGKAP (bukan tahun berjalan yang masih parsial),
-  // sama seperti prinsip completeYears/baselineYear di renderPrediksi().
-  const currentRealYear = new Date().getFullYear();
-  const allYears = Array.from(new Set(rows.map(o=>o.tahun))).filter(y=>y!=null).sort((a,b)=>a-b);
-  const completeYears = allYears.filter(y => y < currentRealYear);
-  const yearsForCalc = completeYears.length ? completeYears.slice(-3) : allYears.slice(-3);
-
-  // periode yang mau diproyeksikan (bulan ke depan), ikut dropdown Periode Prediksi.
-  // Kalau user belum pilih periode, default ke proyeksi bulan depan (i=1) supaya tetap ada nilai.
-  const monthsAhead = (predMonthIdx === null || predMonthIdx === undefined) ? 1 : (predMonthIdx + 1);
-  const now = new Date();
-  const targetDate = new Date(now.getFullYear(), now.getMonth() + monthsAhead, 1);
-  const targetMonth = targetDate.getMonth(); // 0-11
-
-  const baselineYear = yearsForCalc.length ? yearsForCalc[yearsForCalc.length - 1] : null;
-
-  // Hitung total per wilayah per tahun (utk growth rate) + total per wilayah pada
-  // targetMonth di baselineYear (utk baseline musiman), masing2 pakai zona terdekat
-  // dari koordinat kejadian riil (sama seperti computeZonaStats).
-  const totalsPerZonaPerYear = ZONA_DEF.map(()=> ({}));   // [zonaIdx] -> {tahun: total}
-  const baselineMonthPerZona = ZONA_DEF.map(()=> 0);      // [zonaIdx] -> jumlah kejadian di targetMonth, baselineYear
-
-  rows.forEach(o=>{
-    if (o.lokasi_kejadian_lat == null || o.lokasi_kejadian_lon == null) return;
-    if (o.tahun == null || o.bulan == null) return;
-    const idx = nearestZonaIdx(o.lokasi_kejadian_lat, o.lokasi_kejadian_lon);
-    if (idx < 0) return;
-    totalsPerZonaPerYear[idx][o.tahun] = (totalsPerZonaPerYear[idx][o.tahun] || 0) + 1;
-    if (baselineYear != null && o.tahun === baselineYear && (o.bulan - 1) === targetMonth){
-      baselineMonthPerZona[idx]++;
-    }
-  });
-
-  // Growth rate per wilayah: rasio total kejadian dari tahun pertama ke tahun
-  // terakhir di yearsForCalc, di-root-kan per jumlah interval tahun (CAGR sederhana).
-  // Wilayah dengan histori terlalu tipis (total awal 0) growth-nya dianggap netral (1).
-  const growthPerZona = ZONA_DEF.map((_, idx)=>{
-    if (yearsForCalc.length < 2){
-      // Histori kurang dari 2 tahun lengkap -- tidak cukup untuk hitung tren, netral.
-      return 1;
-    }
-    const first = totalsPerZonaPerYear[idx][yearsForCalc[0]] || 0;
-    const last = totalsPerZonaPerYear[idx][yearsForCalc[yearsForCalc.length-1]] || 0;
-    if (first <= 0) return last > 0 ? 1.5 : 1; // ada kejadian baru muncul tapi tanpa baseline -> anggap naik moderat
-    const span = Math.max(1, yearsForCalc.length - 1);
-    return Math.pow(last / first, 1/span);
-  });
-
-  // Proyeksi mentah per wilayah = baseline musiman wilayah itu x growth rate wilayah itu.
-  const projectedPerZona = ZONA_DEF.map((_, idx)=> baselineMonthPerZona[idx] * growthPerZona[idx]);
-  const maxProjected = Math.max(0.0001, ...projectedPerZona);
-
-  return ZONA_DEF.map((z, idx)=> ({
-    ...z,
-    kejadian: baselineMonthPerZona[idx], // dipakai tooltip lama sbg referensi jumlah bulan acuan
-    projected: projectedPerZona[idx],
-    level: Math.min(1, projectedPerZona[idx] / maxProjected),
-  }));
-}
-
-function renderMapPrediksiSpasialLeaflet(containerId, zones){
+function renderMapPrediksiChoropleth(containerId, geojson, dataForPeriode, kabupatenDiLuarScope){
   const wrap = document.getElementById(containerId); if (!wrap) return;
   const entry = getOrCreateLeafletMap(containerId);
   entry.map.invalidateSize();
-  entry.incidentLayer.clearLayers();
-  if (entry.heatLayer){ entry.incidentLayer.removeLayer(entry.heatLayer); entry.heatLayer = null; }
+  if (entry.choroplethLayer){ entry.map.removeLayer(entry.choroplethLayer); entry.choroplethLayer = null; }
   const oldNote = wrap.querySelector('.map-note'); if (oldNote) oldNote.remove();
+  let legend = wrap.querySelector('.map-legend');
 
-  if (predMonthIdx === null || predMonthIdx === undefined){
-    let legend = wrap.querySelector('.map-legend'); if (legend) legend.remove();
+  if (!predMonthKey){
+    if (legend) legend.remove();
     const note = document.createElement('div'); note.className = 'map-note';
     note.textContent = 'Pilih periode prediksi →';
     wrap.appendChild(note);
     return;
   }
 
-  const points = zones.filter(z=>z.ref).map(z=>[z.ref[0], z.ref[1], Math.max(0.05, z.level)]);
-  entry.heatLayer = L.heatLayer(points, {
-    radius: 40, blur: 34, maxZoom: 12, max: 1, minOpacity: .28,
-    gradient: { 0.2:'#4CAF50', 0.4:'#B5D33B', 0.6:'#FFEB3B', 0.8:'#FF9800', 1:'#E53935' },
-  }).addTo(entry.incidentLayer);
+  entry.choroplethLayer = L.geoJson(geojson, {
+    style: (feature)=>{
+      const nama = feature.properties.NAME_2;
+      const d = (dataForPeriode||{})[nama];
+      if (!d) return { fillOpacity: 0, weight: 0 };
+      return { fillColor: WARNA_LEVEL[d.level], weight: 1, color: '#1a1a1a', fillOpacity: 0.8 };
+    },
+    onEachFeature: (feature, layer)=>{
+      const nama = feature.properties.NAME_2;
+      const d = (dataForPeriode||{})[nama];
+      if (!d) return;
+      layer.bindTooltip(`<b>${nama}</b><br>Potensi: ${d.level}`, {direction:'center', className:'sar-pred-tooltip'});
+      layer.on('mouseover', function(){
+        entry.choroplethLayer.eachLayer(l=>{ if (l !== this) l.closeTooltip(); });
+      });
+    }
+  }).addTo(entry.map);
 
-  zones.filter(z=>z.ref).forEach(z=>{
-    const lvl = predictionLevelLabel(z.level);
-    const col = predictionColor(z.level);
-    const icon = L.divIcon({ className:'', html:`<div style="width:12px;height:12px;border-radius:50%;background:${col};border:1.4px solid #0A0605;box-shadow:0 0 6px ${col};"></div>`, iconSize:[12,12], iconAnchor:[6,6] });
-    L.marker(z.ref, {icon, zIndexOffset:600})
-      .bindTooltip(`<b>${z.kab}</b><br>Potensi: ${lvl}<br>Periode: ${PRED_MONTHS[predMonthIdx]}`, {direction:'top', className:'sar-pos-tooltip', offset:[0,-8]})
-      .addTo(entry.incidentLayer);
-  });
-
-  const maxLevel = Math.max(0.01, ...zones.map(z=>z.level));
-  const scaleSteps = [0,0.25,0.5,0.75,1].map(f=>Math.round(maxLevel*f*100));
-  let legend = wrap.querySelector('.map-legend');
-  if (!legend){ legend = document.createElement('div'); legend.className='map-legend zone-priority-density-legend'; wrap.appendChild(legend); }
+  if (!legend){ legend = document.createElement('div'); legend.className='map-legend'; wrap.appendChild(legend); }
   legend.innerHTML = `
-    <div class="row" style="color:var(--text-mid); margin-bottom:0;">Potensi berbasis kepadatan historis</div>
-    <div class="grad-scale">Rendah <div class="prediction-grad-bar"></div> Tinggi</div>
-    <div class="zone-priority-scale-numbers">${scaleSteps.map(v=>`<span>${v}%</span>`).join('')}</div>`;
+    <div class="row"><span class="sw" style="background:${WARNA_LEVEL['Rendah']}"></span>Rendah</div>
+    <div class="row"><span class="sw" style="background:${WARNA_LEVEL['Sedang']}"></span>Sedang</div>
+    <div class="row"><span class="sw" style="background:${WARNA_LEVEL['Tinggi']}"></span>Tinggi</div>`;
 
   const note = document.createElement('div'); note.className = 'map-note';
-  note.textContent = `Periode: ${PRED_MONTHS[predMonthIdx]}`;
+  note.textContent = `Periode: ${periodeLabel(predMonthKey)}`;
   wrap.appendChild(note);
 }
 
-function showPredTip(containerId, kab, levelLabel, x, y){
-  const el = $('predtip-'+containerId); if (!el) return;
-  el.style.left = x+'%'; el.style.top = Math.max(6,y)+'%';
-  el.innerHTML = `<div class="mt-lbl">Zona Prediksi</div><div class="mt-name">${kab}</div><div class="mt-row"><span>Potensi (relatif historis)</span><b>${levelLabel}</b></div><div class="mt-row"><span>Periode</span><b>${PRED_MONTHS[predMonthIdx]}</b></div>`;
-  el.style.display = 'block';
-}
-function hidePredTip(containerId){ const el = $('predtip-'+containerId); if (el) el.style.display = 'none'; }
-
 async function renderPrediksi(){
   baseOpt();
-  const zones = await computePredictionZones();
-  renderMapPrediksiSpasialLeaflet('map-prediksi-spasial', zones);
+  const [prediksiRes, geojson] = await Promise.all([fetchPrediksiZonaRawan(), fetchKabkotaGeoJSON()]);
+  const periodeKeys = Object.keys(prediksiRes.prediksi || {}).sort();
+  if (!predMonthKey && periodeKeys.length) predMonthKey = periodeKeys[0];
+  buildPeriodePrediksiPanel(periodeKeys);
+  $('btn-periode-prediksi-text').textContent = predMonthKey ? ('Periode: ' + periodeLabel(predMonthKey)) : 'Periode Prediksi';
+  const dataForPeriode = predMonthKey ? (prediksiRes.prediksi || {})[predMonthKey] || {} : {};
+  const kabupatenDiLuarScope = (prediksiRes.metadata || {}).kabupaten_di_luar_scope || [];
+  renderMapPrediksiChoropleth('map-prediksi-spasial', geojson, dataForPeriode, kabupatenDiLuarScope);
 
   const f = getActiveFilters();
   const yearsForHist = YEARS_AVAILABLE.slice(-3);
   const trenPerYear = await Promise.all(yearsForHist.map(y => Api.trenBulanan({tahun:[y], kategori:f.kategori})));
-  const hist = [];
-  const monthlyByYear = {};
-  yearsForHist.forEach((y, yi)=>{
-    const monthly = Array(12).fill(0);
-    trenPerYear[yi].data.forEach(row => { monthly[row.bulan-1] += row.jumlah; });
-    monthlyByYear[y] = monthly;
-    const yearMark = isPartialYear(y) ? '*' : '';
-    monthly.forEach((v,mi)=> hist.push({label: MONTHS_SHORT[mi]+"'"+String(y).slice(2)+yearMark, value:v}));
-  });
 
-  /* Baseline musiman WAJIB dari tahun kalender yang sudah lengkap (bukan tahun berjalan
-     yang masih parsial) -- kalau tahun berjalan dipakai, bulan-bulan yang belum terjadi
-     akan selalu 0 dan proyeksi ke depan jadi nol semua. */
+  /* Kategori dominan tetap dihitung dari tahun kalender yang sudah lengkap (bukan tahun
+     berjalan yang masih parsial), dipakai di alert-card kesiapsiagaan di bawah. */
   const currentRealYear = new Date().getFullYear();
   const completeYears = yearsForHist.filter(y => y < currentRealYear);
   const baselineYear = completeYears.length ? completeYears[completeYears.length - 1] : yearsForHist[yearsForHist.length - 1];
-  const lastYearMonthly = monthlyByYear[baselineYear] || Array(12).fill(0);
-
-  const growthYears = completeYears.length >= 2 ? completeYears : yearsForHist;
-  const totalFirst = (monthlyByYear[growthYears[0]] || []).reduce((a,b)=>a+b,0);
-  const totalLast = (monthlyByYear[growthYears[growthYears.length-1]] || []).reduce((a,b)=>a+b,0);
-  const yearsSpan = Math.max(1, growthYears.length - 1);
-  const growth = totalFirst > 0 ? Math.pow(totalLast / totalFirst, 1/yearsSpan) : 1;
-
-  const now = new Date();
-  const proj = [];
-  for (let i=1;i<=3;i++){
-    const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
-    const baseVal = lastYearMonthly[d.getMonth()] || 0;
-    proj.push({ label: MONTHS_SHORT[d.getMonth()]+"'"+String(d.getFullYear()).slice(2), value: Math.round(baseVal * growth) });
-  }
-
-  destroy('proyeksi');
-  const pEl = $('chartProyeksi');
-  if (pEl){
-    const labels = [...hist.map(h=>h.label), ...proj.map(p=>p.label)];
-    const histData = [...hist.map(h=>h.value), null, null, null];
-    const projData = [...new Array(hist.length - 1).fill(null), hist.length ? hist[hist.length-1].value : null, ...proj.map(p=>p.value)];
-    charts.proyeksi = new Chart(pEl, { type:'line',
-      data:{ labels, datasets:[
-        { label:'Historis', data:histData, borderColor:'#FF7A1A', backgroundColor:(c)=>orangeGlow(c,'rgba(255,122,26,.5)'), fill:true, tension:.3, pointRadius:0, spanGaps:false },
-        { label:'Proyeksi', data:projData, borderColor:'#FFC98A', borderDash:[6,4], fill:false, tension:.3, pointRadius:2, spanGaps:true },
-      ]},
-      options:{ maintainAspectRatio:false, scales:{ x:{grid:{display:false}, ticks:{font:{size:8}, maxRotation:90, minRotation:90}}, y:{grid:{color:'rgba(255,138,54,.1)'}, beginAtZero:true} }, plugins:{legend:{position:'bottom', labels:{boxWidth:28, boxHeight:2, font:{size:10}}}} } });
-  }
+  const baselineIdx = yearsForHist.indexOf(baselineYear);
 
   const latestYearTotals = {};
-  let sumLatest = 0;
-  const baselineIdx = yearsForHist.indexOf(baselineYear);
-  (trenPerYear[baselineIdx >= 0 ? baselineIdx : trenPerYear.length-1]?.data || []).forEach(row=>{ latestYearTotals[row.nama_kategori] = (latestYearTotals[row.nama_kategori]||0) + row.jumlah; sumLatest += row.jumlah; });
-  destroy('prediksiKategori');
-  const pkEl = $('chartPrediksiKategori');
-  if (pkEl){
-    charts.prediksiKategori = new Chart(pkEl, { type:'bar',
-      data:{ labels: proj.map(p=>p.label), datasets: state.activeCats.map(cid=>({
-          label: CATMAP[cid].label, backgroundColor: CATMAP[cid].color,
-          data: proj.map(p=> sumLatest ? Math.round(p.value * ((latestYearTotals[cid]||0)/sumLatest)) : 0),
-        })) },
-      options:{ maintainAspectRatio:false, scales:{ x:{grid:{display:false}, stacked:true}, y:{grid:{color:'rgba(255,138,54,.1)'}, stacked:true, beginAtZero:true} }, plugins:{legend:{position:'bottom', labels:{boxWidth:9,font:{size:10}}}} } });
-  }
+  (trenPerYear[baselineIdx >= 0 ? baselineIdx : trenPerYear.length-1]?.data || []).forEach(row=>{
+    latestYearTotals[row.nama_kategori] = (latestYearTotals[row.nama_kategori]||0) + row.jumlah;
+  });
 
   let domKey = state.activeCats[0], domVal = -1;
   state.activeCats.forEach(cid=>{ const v = latestYearTotals[cid]||0; if (v>domVal){domVal=v; domKey=cid;} });
-  const topZona = zones.slice().sort((a,b)=>b.kejadian-a.kejadian)[0] || {kab:'-', wilayah:'-'};
+  const topKabEntry = Object.entries(dataForPeriode).sort((a,b)=> b[1].skor - a[1].skor)[0];
+  const topKabNama = topKabEntry ? topKabEntry[0] : null;
+  const topKabLevel = topKabEntry ? topKabEntry[1].level : null;
+  const domLabel = domKey!=null && CATMAP[domKey] ? CATMAP[domKey].label : null;
+
+  const insightTxt = (domLabel && topKabNama)
+    ? `Pada periode <b>${periodeLabel(predMonthKey)}</b>, <b>${domLabel}</b> diperkirakan tetap menjadi jenis kejadian paling banyak terjadi, dengan wilayah paling rawan adalah <b>${topKabNama}</b> (potensi ${topKabLevel.toLowerCase()}). Disarankan penguatan kesiapsiagaan personel dan peralatan SAR di wilayah tersebut.`
+    : 'Data prediksi untuk periode ini belum cukup untuk memberikan insight kesiapsiagaan.';
+
   $('alert-card').innerHTML = `
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
     <div>
       <div class="tag">Peringatan Kesiapsiagaan</div>
-      <div class="txt">Berdasarkan tren historis riil, <b>${domKey!=null && CATMAP[domKey] ? CATMAP[domKey].label : '-'}</b> diperkirakan tetap mendominasi pada 3 bulan ke depan, dengan wilayah rawan tertinggi di <b>${topZona.kab}</b>. Disarankan penguatan kesiapsiagaan di wilayah <b>${topZona.wilayah}</b>.</div>
+      <div class="txt">${insightTxt}</div>
     </div>`;
 }
 
