@@ -1108,19 +1108,21 @@ async function render(){
 /* ================= BERANDA ================= */
 const KPI_ICONS = {
   total:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg>',
-  korban:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>',
+  ditangani:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><line x1="4.93" y1="19.07" x2="9.17" y2="14.83"/></svg>',
   ok:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  meninggal:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+  hilang:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
 };
 function renderKPI(kpi){
   const allBulan = state.activeMonths.length === 12;
   const yearLbl = formatTahunLabel(state.year);
   const sub = allBulan ? `sepanjang tahun ${yearLbl}` : `${state.activeMonths.length} bulan terpilih, tahun ${yearLbl}`;
   const items = [
-    {lbl:'Total Kejadian', val:kpi.total_kejadian, sub, icon:KPI_ICONS.total},
-    {lbl:'Korban Ditangani', val:kpi.korban_ditangani, sub:'seluruh kategori terpilih', icon:KPI_ICONS.korban},
-    {lbl:'Selamat', val:kpi.selamat, sub:'berhasil diselamatkan', icon:KPI_ICONS.ok},
-    {lbl:'Meninggal Dunia', val:kpi.meninggal, sub:'ditemukan tidak selamat', icon:KPI_ICONS.korban},
-    {lbl:'Hilang', val:kpi.hilang, sub:'Hilang/Tidak Ditemukan', icon:KPI_ICONS.korban},
+  {lbl:'Total Kejadian', val:kpi.total_kejadian, sub, icon:KPI_ICONS.total},
+  {lbl:'Korban Ditangani', val:kpi.korban_ditangani, sub:'seluruh kategori terpilih', icon:KPI_ICONS.ditangani},
+  {lbl:'Selamat', val:kpi.selamat, sub:'berhasil diselamatkan', icon:KPI_ICONS.ok},
+  {lbl:'Meninggal Dunia', val:kpi.meninggal, sub:'ditemukan tidak selamat', icon:KPI_ICONS.meninggal},
+  {lbl:'Hilang', val:kpi.hilang, sub:'Hilang/Tidak Ditemukan', icon:KPI_ICONS.hilang},
   ];
   $('kpi-row').innerHTML = items.map(it=>`
     <div class="kpi">
@@ -1430,11 +1432,6 @@ function onPeriodePrediksiToggle(el){
 
 let PREDICTION_ZONES_CACHE = null;
 
-/* Proyeksi spasial per wilayah -- konsisten dengan logika chart "Estimasi Volume
-   Kesiapsiagaan" di renderPrediksi() (baseline musiman + growth rate tahun-ke-tahun),
-   tapi dihitung TERPISAH per kelompok wilayah (ZONA_DEF), bukan cuma total gabungan.
-   predMonthIdx (dropdown "Periode Prediksi") ikut menentukan bulan mana yang
-   diproyeksikan -- sebelumnya nilai ini tidak berpengaruh sama sekali ke peta. */
 
 function renderMapPrediksiChoropleth(containerId, geojson, dataForPeriode, kabupatenDiLuarScope){
   const wrap = document.getElementById(containerId); if (!wrap) return;
@@ -1495,9 +1492,6 @@ async function renderPrediksi(){
   const f = getActiveFilters();
   const yearsForHist = YEARS_AVAILABLE.slice(-3);
   const trenPerYear = await Promise.all(yearsForHist.map(y => Api.trenBulanan({tahun:[y], kategori:f.kategori})));
-
-  /* Kategori dominan tetap dihitung dari tahun kalender yang sudah lengkap (bukan tahun
-     berjalan yang masih parsial), dipakai di alert-card kesiapsiagaan di bawah. */
   const currentRealYear = new Date().getFullYear();
   const completeYears = yearsForHist.filter(y => y < currentRealYear);
   const baselineYear = completeYears.length ? completeYears[completeYears.length - 1] : yearsForHist[yearsForHist.length - 1];
@@ -1520,12 +1514,24 @@ async function renderPrediksi(){
     : 'Data prediksi untuk periode ini belum cukup untuk memberikan insight kesiapsiagaan.';
 
   $('alert-card').innerHTML = `
-    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-    <div>
-      <div class="tag">Peringatan Kesiapsiagaan</div>
-      <div class="txt">${insightTxt}</div>
-    </div>`;
-}
+      <div>
+        <div class="tag">Peringatan Kesiapsiagaan</div>
+        <div class="txt">${insightTxt}</div>
+      </div>`;
+  $('alert-card').style.borderLeftColor = topKabLevel ? WARNA_LEVEL[topKabLevel] : 'var(--o-90)';
+
+  const rankSorted = Object.entries(dataForPeriode).sort((a,b)=> b[1].skor - a[1].skor).slice(0, 8);
+  const maxSkor = Math.max(0.001, ...rankSorted.map(([,d])=>d.skor));
+  const rankListEl = $('prediksi-rank-list');
+  if (rankListEl){
+    rankListEl.innerHTML = rankSorted.length ? rankSorted.map(([kab, d], i)=>`
+      <div class="rank-item">
+        <div class="no">${String(i+1).padStart(2,'0')}</div>
+        <div class="info"><div class="kab">${kab}</div><div class="pos">Potensi ${d.level}</div></div>
+        <div class="metric"><span class="n">${d.skor.toFixed(2)}</span><div class="bar-bg"><div class="bar-fg" style="width:${Math.round((d.skor/maxSkor)*100)}%; background:${WARNA_LEVEL[d.level]}"></div></div></div>
+      </div>`).join('') : `<div class="admin-empty-hint">Data prediksi belum tersedia untuk periode ini.</div>`;
+  }
+  }
 
 /* ================= ADMIN: INPUT DATA OPERASI =================
    Skema kejadian_sar tidak punya tabel relasional korban/instansi/peralatan --

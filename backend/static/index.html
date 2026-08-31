@@ -226,18 +226,10 @@
   .insight .txt{font-size:11.5px; color:var(--text-mid); line-height:1.65;}
 
   .alert-card{
-    position:relative; overflow:hidden; border-radius:var(--r-lg); padding:17px 19px; display:flex; gap:13px; align-items:flex-start;
-    background:linear-gradient(120deg, rgba(255,106,15,.14), rgba(20,14,10,.5) 55%);
-    backdrop-filter:blur(var(--blur));
-    border:1px solid var(--glass-brd-hi);
-    box-shadow:0 8px 30px rgba(255,90,10,.1);
-  }
-  .alert-card .ic{
-    width:32px; height:32px; border-radius:var(--r); flex-shrink:0; display:flex; align-items:center; justify-content:center;
-    background:linear-gradient(135deg, var(--o-90), var(--o-50));
-    box-shadow:0 0 20px rgba(255,106,15,.4);
-  }
-  .alert-card .ic svg{width:16px; height:16px; color:#FFF3E8;}
+    position:relative; border-radius:var(--r-lg); padding:16px 19px; display:flex; gap:14px; align-items:flex-start;
+    background:linear-gradient(160deg, var(--glass-hi), var(--glass));
+    border:1px solid var(--glass-brd);
+    border-left:3px solid var(--o-90);}
   .alert-card .tag{font-size:9.5px; font-weight:700; letter-spacing:.07em; color:var(--o-100); font-family:var(--display); margin-bottom:5px; text-transform:uppercase;}
   .alert-card .txt{font-size:12px; color:var(--text-hi); line-height:1.65;}
 
@@ -670,7 +662,11 @@
         Tren &amp; Statistik
       </button>
       <button class="nav-item" data-page="prediksi" onclick="goPage('prediksi')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/>
+          <circle cx="12" cy="12" r="5"/>
+          <circle cx="12" cy="12" r="1"/>
+        </svg>
         Prediksi Sebaran Lokasi
       </button>
       <div class="nav-divider" id="admin-nav-divider" style="display:none;"></div>
@@ -753,7 +749,7 @@
             </div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>Komposisi Kejadian</h3><span class="sub">sesuai filter aktif</span></div>
+            <div class="card-head"><h3>Komposisi Kejadian</h3></span></div>
             <div class="card-body">
               <div class="chart-box short"><canvas id="chartDonutBeranda"></canvas></div>
               <div id="legend-beranda" style="margin-top:10px;"></div>
@@ -762,18 +758,18 @@
         </div>
         <div class="grid-2">
           <div class="card">
-            <div class="card-head"><h3>Beban Kerja Pos / Unit SAR</h3><span class="sub">jumlah operasi ditangani, periode terpilih</span></div>
+            <div class="card-head"><h3>Beban Kerja Pos / Unit SAR</h3><span class="sub">jumlah operasi ditangani</span></div>
             <div class="card-body"><div class="chart-box"><canvas id="chartBebanPos"></canvas></div></div>
           </div>
           <div class="card">
             <div class="card-head">
-              <h3>Tren Kejadian Bulanan</h3><span class="sub">total lintas kategori, tahun terpilih</span>
+              <h3>Tren Kejadian Bulanan</h3><span class="sub">total lintas kategori</span>
             </div>
             <div class="card-body"><div class="chart-box"><canvas id="chartTrenBeranda"></canvas></div></div>
           </div>
         </div>
         <div class="card">
-          <div class="card-head"><h3>Insight Otomatis</h3><span class="sub">sistem analisis SAR</span></div>
+          <div class="card-head"><h3>Insight</h3><span class="sub">sistem analisis SAR</span></div>
           <div class="card-body" id="insight-panel"></div>
         </div>
         <div class="footnote" id="footnote-beranda"></div>
@@ -793,13 +789,12 @@
           </div>
         </div>
         <div class="grid-3" id="peta-stats"></div>
-        <div class="footnote">Peta menggunakan proyeksi geografis asli (OpenStreetMap/CARTO) — posisi titik kejadian sesuai koordinat lat/lon riil di database.</div>
       </section>
       <!-- ================= TREN ================= -->
       <section class="page" id="page-tren">
         <div class="grid-2">
           <div class="card">
-            <div class="card-head"><h3>Tren Bulanan per Kategori</h3><span class="sub">tahun terpilih</span></div>
+            <div class="card-head"><h3>Tren Bulanan per Kategori</h3></span></div>
             <div class="card-body"><div class="chart-box tall"><canvas id="chartTrenKategori"></canvas></div></div>
           </div>
           <div class="card">
@@ -809,11 +804,11 @@
         </div>
         <div class="grid-3">
           <div class="card">
-            <div class="card-head"><h3>Waktu Kejadian</h3><span class="sub">pola jam kejadian terjadi, periode terpilih</span></div>
+            <div class="card-head"><h3>Waktu Kejadian</h3><span class="sub">pola jam kejadian terjadi</span></div>
             <div class="card-body"><div class="chart-box med"><canvas id="chartJam"></canvas></div></div>
           </div>
           <div class="card">
-            <div class="card-head"><h3>Waktu Dilaporkan</h3><span class="sub">pola jam laporan diterima, periode terpilih</span></div>
+            <div class="card-head"><h3>Waktu Dilaporkan</h3><span class="sub">pola jam laporan diterima</span></div>
             <div class="card-body"><div class="chart-box med"><canvas id="chartJamLapor"></canvas></div></div>
           </div>
           <div class="card">
@@ -823,7 +818,7 @@
         </div>
         <div class="grid-2">
           <div class="card">
-            <div class="card-head"><h3>Rentang Waktu Operasi</h3><span class="sub">dari keberangkatan sampai operasi selesai (standar maksimal 7 hari)</span></div>
+            <div class="card-head"><h3>Rentang Waktu Operasi</h3><span class="sub">dari keberangkatan sampai operasi selesai</span></div>
             <div class="card-body"><div class="chart-box"><canvas id="chartDurasiOperasi"></canvas></div></div>
           </div>
           <div class="card">
@@ -851,7 +846,6 @@
             </div>
           </div>
         </div>
-        <div class="footnote">* Data tahun berjalan masih parsial (belum genap 12 bulan).</div>
       </section>
       <!-- ================= ZONA ================= -->
       <section class="page" id="page-zona">
@@ -891,15 +885,18 @@
                 <div class="ms-panel" id="panel-periode-prediksi"></div>
               </div>
             </div>
-            <span class="sub">proyeksi 3 bulan ke depan dihitung dari tren pertumbuhan data historis riil &mdash; bukan sekadar total angka operasi</span>
           </div>
           <div class="card-body" style="display:flex; flex-direction:column; gap:14px;">
             <div class="map-wrap prediction-map" id="map-prediksi-spasial" style="height:420px;"></div>
           </div>
         </div>
         <div class="alert-card" id="alert-card"></div>
-        <div class="footnote">Proyeksi dihitung dari tren pertumbuhan tahun-ke-tahun data historis riil di database dan pola bulanan tahun terakhir. Bersifat estimasi kasar, bukan model prediksi statistik final.</div>
+        <div class="card">
+          <div class="card-head"><h3>Wilayah Paling Rawan</h3></div>
+          <div class="card-body pad-sm"><div class="rank-list" id="prediksi-rank-list"></div></div>
+        </div>
       </section>
+      
       <!-- ================= ADMIN: INPUT DATA OPERASI ================= -->
       <section class="page" id="page-admin-input">
         <div class="admin-mode-banner">
