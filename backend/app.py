@@ -1,3 +1,4 @@
+
 import decimal
 
 from flask import Flask, jsonify, send_from_directory
@@ -24,6 +25,7 @@ class NumericJSONProvider(DefaultJSONProvider):
 app = Flask(__name__, static_folder='static', static_url_path='')
 app.json = NumericJSONProvider(app)
 app.config['SECRET_KEY'] = SECRET_KEY
+app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20MB - cukup untuk file Excel laporan tahunan
 
 app.register_blueprint(public_bp)
 app.register_blueprint(admin_bp)
@@ -37,6 +39,11 @@ def index():
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({'success': False, 'data': None, 'message': 'Endpoint tidak ditemukan.'}), 404
+
+
+@app.errorhandler(413)
+def too_large(e):
+    return jsonify({'success': False, 'data': None, 'message': 'Ukuran file terlalu besar (maksimum 20MB).'}), 413
 
 
 @app.errorhandler(500)

@@ -629,6 +629,54 @@
   .admin-summary-chip b{color:var(--text-hi); font-family:var(--mono);}
   .admin-empty-hint{font-size:10.5px; color:var(--text-faint); padding:6px 0;}
   .admin-loading{padding:24px; text-align:center; color:var(--text-faint); font-size:11.5px;}
+
+  /* ===================== ADMIN INPUT: TABS ===================== */
+  .admin-tabs{display:flex; gap:2px; padding:10px 10px 0; border-bottom:1px solid var(--line);}
+  .admin-tab-btn{
+    display:flex; align-items:center; gap:8px; background:transparent; border:none; cursor:pointer;
+    color:var(--text-low); font-size:12px; font-weight:600; font-family:var(--display); letter-spacing:.01em;
+    padding:11px 16px; border-radius:var(--r) var(--r) 0 0; transition:color .15s, background .15s;
+  }
+  .admin-tab-btn svg{width:14px; height:14px; opacity:.7; flex-shrink:0;}
+  .admin-tab-btn:hover{color:var(--text-hi); background:rgba(255,106,15,.06);}
+  .admin-tab-btn.active{color:var(--o-100); background:linear-gradient(180deg, rgba(255,106,15,.14), rgba(255,106,15,.03)); box-shadow:inset 0 -2px 0 var(--o-90);}
+  .admin-tab-btn.active svg{opacity:1;}
+  .admin-tab-panel{display:none;}
+  .admin-tab-panel.active{display:block; animation:fade .25s ease;}
+
+  .admin-required-note{font-size:10.5px; color:var(--text-faint); margin:2px 0 12px;}
+  .field-hint{font-size:10px; color:var(--text-faint); margin-top:6px; line-height:1.6;}
+
+  .admin-details{padding-top:14px;}
+  .admin-details summary{list-style:none; outline:none;}
+  .admin-details summary::-webkit-details-marker{display:none;}
+  .admin-details summary::before{content:'▸ '; color:var(--o-90); font-size:9px;}
+  .admin-details[open] summary::before{content:'▾ ';}
+
+  /* ===================== ADMIN INPUT: EXCEL UPLOAD ===================== */
+  .excel-dropzone{
+    display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:8px;
+    padding:38px 20px; border-radius:var(--r-lg); cursor:pointer;
+    border:1.5px dashed var(--glass-brd-hi); background:rgba(255,106,15,.03); transition:border-color .15s, background .15s;
+  }
+  .excel-dropzone:hover, .excel-dropzone.dragover{border-color:var(--o-80); background:rgba(255,106,15,.09);}
+  .excel-dropzone .dz-icon{width:40px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(255,106,15,.12); border:1px solid var(--glass-brd-hi); margin-bottom:4px;}
+  .excel-dropzone .dz-icon svg{width:20px; height:20px; color:var(--o-90);}
+  .excel-dropzone .dz-text{font-size:12.5px; color:var(--text-mid);}
+  .excel-dropzone .dz-text .dz-link{color:var(--o-90); font-weight:700; text-decoration:underline;}
+  .excel-dropzone .dz-sub{font-size:10px; color:var(--text-faint); font-family:var(--mono);}
+
+  .excel-file-card{
+    display:flex; align-items:center; gap:12px; margin-top:12px; padding:12px 14px; border-radius:var(--r-lg);
+    background:var(--glass); border:1px solid var(--glass-brd);
+  }
+  .excel-file-card svg{width:22px; height:22px; color:var(--o-90); flex-shrink:0;}
+  .excel-file-card .efc-info{flex:1; min-width:0;}
+  .excel-file-card .efc-name{font-size:12px; font-weight:600; color:var(--text-hi); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .excel-file-card .efc-meta{font-size:10px; color:var(--text-faint); font-family:var(--mono); margin-top:2px;}
+  .admin-btn-primary:disabled{opacity:.45; cursor:default;}
+  .excel-summary-chip.err{color:#FF9086; border-color:rgba(255,90,74,.35);}
+  .excel-summary-chip.ok{color:var(--safe); border-color:rgba(95,190,122,.35);}
 </style>
 </head>
 <body>
@@ -903,234 +951,275 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6z"/><polyline points="9 12 11 14 15 10"/></svg>
           <div>
             <div class="amb-title">Input Data Operasi SAR</div>
-            <div class="amb-sub">Tambahkan dan perbarui data operasi Search and Rescue</div>
+            <div class="amb-sub">Tambahkan data kejadian secara manual, atau impor massal dari file Excel</div>
           </div>
           <span class="admin-mode-badge">Admin Mode</span>
         </div>
 
         <div class="card">
-          <div class="card-head"><h3 id="admin-form-title">Form Operasi Baru</h3><span class="sub">Lengkapi data sesuai tahapan operasi yang sedang berjalan</span></div>
-          <div class="card-body admin-form-body">
+          <div class="admin-tabs" role="tablist">
+            <button type="button" class="admin-tab-btn active" id="admin-tab-btn-manual" role="tab" aria-selected="true" onclick="switchAdminTab('manual')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+              Input Manual Per Kejadian
+            </button>
+            <button type="button" class="admin-tab-btn" id="admin-tab-btn-excel" role="tab" aria-selected="false" onclick="switchAdminTab('excel')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Upload File Excel (Bulk Import)
+            </button>
+            <button type="button" class="admin-tab-btn" id="admin-tab-btn-data" role="tab" aria-selected="false" onclick="switchAdminTab('data')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 6a2 2 0 012-2h14a2 2 0 012 2M3 6v12a2 2 0 002 2h14a2 2 0 002-2V6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="9" y1="6" x2="9" y2="20"/></svg>
+              Data Tersimpan
+            </button>
+          </div>
 
-            <!-- A: Informasi Kejadian -->
-            <div class="admin-section">
-              <div class="admin-section-title">Informasi Kejadian</div>
-              <div class="admin-grid">
-                <div class="admin-field">
-                  <label>ID Operasi</label>
-                  <input type="text" id="admin-f-id" class="admin-input" readonly placeholder="Otomatis setelah disimpan">
-                </div>
-                <div class="admin-field">
-                  <label>Kategori Kejadian <span class="req">*</span></label>
-                  <select id="admin-f-kategori" class="admin-input"></select>
-                </div>
-                <div class="admin-field">
-                  <label>Klasifikasi</label>
-                  <select id="admin-f-klasifikasi" class="admin-input"></select>
-                </div>
-                <div class="admin-field">
-                  <label>Nama Objek Terdampak</label>
-                  <input type="text" id="admin-f-objek" class="admin-input" placeholder="Contoh: KM Fortuner">
-                </div>
-                <div class="admin-field">
-                  <label>Waktu Kejadian <span class="req">*</span></label>
-                  <input type="datetime-local" id="admin-f-waktu-kejadian" class="admin-input">
-                </div>
-                <div class="admin-field">
-                  <label>Waktu Laporan Diterima</label>
-                  <input type="datetime-local" id="admin-f-tgl-lapor" class="admin-input">
-                </div>
-                <div class="admin-field">
-                  <label>Sumber Laporan</label>
-                  <select id="admin-f-sumber" class="admin-input"></select>
-                </div>
-                <div class="admin-field">
-                  <label>Nama Pelapor</label>
-                  <input type="text" id="admin-f-nama-pelapor" class="admin-input" placeholder="Nama pelapor (data pribadi, hanya admin)">
-                </div>
-                <div class="admin-field">
-                  <label>Instansi Pelapor</label>
-                  <input type="text" id="admin-f-instansi-pelapor" class="admin-input">
-                </div>
-                <div class="admin-field">
-                  <label>No. HP Pelapor</label>
-                  <input type="text" id="admin-f-hp-pelapor" class="admin-input">
-                </div>
-                <div class="admin-field admin-field-wide">
-                  <label>Narasi / Kronologi Kejadian</label>
-                  <textarea id="admin-f-narasi" class="admin-input" rows="3" placeholder="Uraian bebas kronologi kejadian"></textarea>
+          <!-- ===== TAB 1: INPUT MANUAL PER KEJADIAN ===== -->
+          <div class="admin-tab-panel active" id="admin-tab-manual">
+            <div class="card-body admin-form-body">
+              <div style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:2px;">
+                <h3 id="admin-form-title" style="font-family:var(--display); font-size:12px; font-weight:600; margin:0;">Form Kejadian Baru</h3>
+                <span class="admin-required-note" style="margin:0;">Field bertanda <span class="req">*</span> wajib diisi</span>
+              </div>
+
+              <!-- A: Informasi Kejadian -->
+              <div class="admin-section">
+                <div class="admin-section-title">Informasi Kejadian</div>
+                <div class="admin-grid">
+                  <div class="admin-field">
+                    <label>ID Operasi</label>
+                    <input type="text" id="admin-f-id" class="admin-input" readonly placeholder="Otomatis setelah disimpan">
+                  </div>
+                  <div class="admin-field">
+                    <label>Waktu Kejadian <span class="req">*</span></label>
+                    <input type="datetime-local" id="admin-f-waktu-kejadian" class="admin-input" oninput="updateStatusIndicator()">
+                  </div>
+                  <div class="admin-field">
+                    <label>Kategori Kejadian <span class="req">*</span></label>
+                    <select id="admin-f-kategori" class="admin-input">
+                      <option value="">-- Pilih Kategori --</option>
+                    </select>
+                  </div>
+                  <div class="admin-field">
+                    <label>Klasifikasi</label>
+                    <select id="admin-f-klasifikasi" class="admin-input">
+                      <option value="">-- Pilih Klasifikasi (opsional) --</option>
+                    </select>
+                  </div>
+                  <div class="admin-field admin-field-wide">
+                    <label>Jenis Kecelakaan <span class="req">*</span></label>
+                    <textarea id="admin-f-jenis" class="admin-input" rows="2" placeholder="Uraian singkat jenis/kronologi kecelakaan"></textarea>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <!-- B: Lokasi Kejadian -->
-            <div class="admin-section">
-              <div class="admin-section-title">Lokasi Kejadian (LKK)</div>
-              <div class="admin-grid">
-                <div class="admin-field admin-field-wide">
-                  <label>Deskripsi Lokasi Kejadian / LKK <span class="req">*</span></label>
-                  <input type="text" id="admin-f-lkk" class="admin-input" placeholder="Contoh: Perairan Selat Madura">
+              <!-- B: Lokasi Kejadian -->
+              <div class="admin-section">
+                <div class="admin-section-title">Lokasi Kejadian</div>
+                <div class="admin-grid">
+                  <div class="admin-field admin-field-wide">
+                    <label>Deskripsi Lokasi</label>
+                    <input type="text" id="admin-f-lkk" class="admin-input" placeholder="Contoh: Perairan Selat Madura">
+                  </div>
+                  <div class="admin-field">
+                    <label>Latitude <span class="req">*</span></label>
+                    <input type="number" step="0.000001" id="admin-f-lat" class="admin-input" placeholder="-7.250000" oninput="onAdminLatLonInput()">
+                  </div>
+                  <div class="admin-field">
+                    <label>Longitude <span class="req">*</span></label>
+                    <input type="number" step="0.000001" id="admin-f-lon" class="admin-input" placeholder="112.750000" oninput="onAdminLatLonInput()">
+                  </div>
                 </div>
-                <div class="admin-field">
-                  <label>Latitude <span class="req">*</span></label>
-                  <input type="number" step="0.000001" id="admin-f-lat" class="admin-input" placeholder="-7.250000">
+                <div style="margin-top:12px;">
+                  <label class="admin-map-label">Mini Map Picker &mdash; klik pada peta (atau geser pin) untuk mengisi koordinat otomatis</label>
+                  <div class="map-wrap admin-map-picker" id="admin-map-picker"></div>
                 </div>
-                <div class="admin-field">
-                  <label>Longitude <span class="req">*</span></label>
-                  <input type="number" step="0.000001" id="admin-f-lon" class="admin-input" placeholder="112.750000">
-                </div>
-                <div class="admin-field">
-                  <label>Radial (derajat)</label>
-                  <input type="number" step="0.01" id="admin-f-radial" class="admin-input" placeholder="0-360">
+                <div class="admin-field-wide" style="margin-top:14px;">
+                  <label class="admin-map-label">Wilayah Terdampak <span class="req">*</span></label>
+                  <div class="admin-checkbox-grid" id="admin-wilayah-checkgrid"></div>
+                  <input type="text" id="admin-f-wilayah-lain" class="admin-input" style="margin-top:8px;" placeholder="Wilayah lain di luar daftar (pisahkan dengan koma)">
+                  <div class="field-hint">Data tanpa wilayah tidak akan muncul pada filter dashboard, jadi pilih minimal satu wilayah.</div>
                 </div>
               </div>
-              <div class="admin-field-wide" style="margin-top:12px;">
-                <label class="admin-map-label">Mini Map Picker &mdash; klik pada peta untuk mengisi koordinat otomatis</label>
-                <div class="map-wrap admin-map-picker" id="admin-map-picker"></div>
+
+              <!-- C: Data Korban -->
+              <div class="admin-section">
+                <div class="admin-section-title">Data Korban</div>
+                <div class="admin-grid">
+                  <div class="admin-field">
+                    <label>POB (Person On Board)</label>
+                    <input type="number" min="0" id="admin-f-pob" class="admin-input" placeholder="0" oninput="validateKorbanVsPob()">
+                  </div>
+                  <div class="admin-field">
+                    <label>Selamat (S)</label>
+                    <input type="number" min="0" id="admin-f-s" class="admin-input" value="0" oninput="validateKorbanVsPob()">
+                  </div>
+                  <div class="admin-field">
+                    <label>Meninggal Dunia (MD)</label>
+                    <input type="number" min="0" id="admin-f-md" class="admin-input" value="0" oninput="validateKorbanVsPob()">
+                  </div>
+                  <div class="admin-field">
+                    <label>Hilang (H)</label>
+                    <input type="number" min="0" id="admin-f-h" class="admin-input" value="0" oninput="validateKorbanVsPob()">
+                  </div>
+                </div>
+                <div class="field-hint" id="admin-korban-hint">Total korban (S + MD + H) tidak boleh melebihi POB.</div>
               </div>
-            </div>
 
-            <!-- C: Pos & Pelaksanaan -->
-            <div class="admin-section">
-              <div class="admin-section-title">Pos / Unit Siaga &amp; Pelaksanaan</div>
-              <div class="admin-grid">
-                <div class="admin-field">
-                  <label>Pos / Unit Siaga SAR <span class="req">*</span></label>
-                  <select id="admin-f-pos" class="admin-input"></select>
-                </div>
-                <div class="admin-field">
-                  <label>Waktu Berangkat</label>
-                  <input type="datetime-local" id="admin-f-waktu-berangkat" class="admin-input" oninput="updateStatusIndicator()">
-                </div>
-                <div class="admin-field">
-                  <label>Waktu Tiba di Lokasi</label>
-                  <input type="datetime-local" id="admin-f-waktu-tiba" class="admin-input">
-                </div>
-                <div class="admin-field">
-                  <label>Waktu Operasi Selesai</label>
-                  <input type="datetime-local" id="admin-f-waktu-selesai" class="admin-input" oninput="updateStatusIndicator()">
-                </div>
-                <div class="admin-field">
-                  <label>Waktu Siap (menit)</label>
-                  <input type="number" min="0" id="admin-f-waktu-siap" class="admin-input">
-                </div>
-                <div class="admin-field">
-                  <label>Waktu Tempuh (menit)</label>
-                  <input type="number" min="0" id="admin-f-waktu-tempuh" class="admin-input">
-                </div>
-                <div class="admin-field">
-                  <label>Jarak Laut (NM)</label>
-                  <input type="number" step="0.01" min="0" id="admin-f-jarak-laut" class="admin-input">
-                </div>
-                <div class="admin-field">
-                  <label>Jarak Darat (KM)</label>
-                  <input type="number" step="0.01" min="0" id="admin-f-jarak-darat" class="admin-input">
-                </div>
+              <!-- D: Status Operasi (otomatis) -->
+              <div class="admin-section">
+                <div class="admin-section-title">Status Operasi</div>
+                <div id="admin-status-indicator" class="admin-status-indicator"></div>
+                <div class="field-hint">Dihitung otomatis dari kelengkapan Waktu Berangkat &amp; Waktu Selesai di bagian "Detail Tambahan" di bawah.</div>
               </div>
-            </div>
 
-            <!-- D: Data Korban -->
-            <div class="admin-section">
-              <div class="admin-section-title">Data Korban</div>
-              <div class="admin-grid">
-                <div class="admin-field">
-                  <label>POB (Person On Board)</label>
-                  <input type="number" min="0" id="admin-f-pob" class="admin-input" value="0">
+              <!-- E: Detail tambahan (opsional, collapsible) -->
+              <details class="admin-details">
+                <summary class="admin-section-title">Detail Tambahan (Opsional) &mdash; sumber laporan, waktu pelaksanaan, lokasi ditemukan, kendala, dll.</summary>
+                <div class="admin-grid" style="margin-top:12px;">
+                  <div class="admin-field">
+                    <label>Sumber Laporan</label>
+                    <input type="text" list="admin-dl-sumber" id="admin-f-sumber" class="admin-input" placeholder="Contoh: Radio Pantai">
+                    <datalist id="admin-dl-sumber"></datalist>
+                  </div>
+                  <div class="admin-field">
+                    <label>Waktu Laporan Diterima</label>
+                    <input type="datetime-local" id="admin-f-tgl-lapor" class="admin-input">
+                  </div>
+                  <div class="admin-field">
+                    <label>Waktu Berangkat</label>
+                    <input type="datetime-local" id="admin-f-waktu-berangkat" class="admin-input" oninput="updateStatusIndicator()">
+                  </div>
+                  <div class="admin-field">
+                    <label>Waktu Tiba di Lokasi</label>
+                    <input type="datetime-local" id="admin-f-waktu-tiba" class="admin-input" oninput="updateStatusIndicator()">
+                  </div>
+                  <div class="admin-field">
+                    <label>Waktu Operasi Selesai</label>
+                    <input type="datetime-local" id="admin-f-waktu-selesai" class="admin-input" oninput="updateStatusIndicator()">
+                  </div>
+                  <div class="admin-field">
+                    <label>Waktu Siap (menit)</label>
+                    <input type="number" min="0" id="admin-f-waktu-siap" class="admin-input">
+                  </div>
+                  <div class="admin-field">
+                    <label>Waktu Tempuh (menit)</label>
+                    <input type="number" min="0" id="admin-f-waktu-tempuh" class="admin-input">
+                  </div>
+                  <div class="admin-field">
+                    <label>Biaya (Rp)</label>
+                    <input type="text" id="admin-f-biaya" class="admin-input" placeholder="Contoh: 5.000.000">
+                  </div>
+                  <div class="admin-field admin-field-wide">
+                    <label>Deskripsi Lokasi Ditemukan</label>
+                    <input type="text" id="admin-f-lokasi-ditemukan" class="admin-input" placeholder="Contoh: Dermaga 2">
+                  </div>
+                  <div class="admin-field">
+                    <label>Latitude Titik Ditemukan</label>
+                    <input type="number" step="0.000001" id="admin-f-lat-ditemukan" class="admin-input">
+                  </div>
+                  <div class="admin-field">
+                    <label>Longitude Titik Ditemukan</label>
+                    <input type="number" step="0.000001" id="admin-f-lon-ditemukan" class="admin-input">
+                  </div>
+                  <div class="admin-field admin-field-wide">
+                    <label>Instansi &amp; Jumlah Personel</label>
+                    <input type="text" id="admin-f-instansi" class="admin-input" placeholder="Contoh: Basarnas(8), Polairud(4)">
+                  </div>
+                  <div class="admin-field admin-field-wide">
+                    <label>Peralatan Digunakan</label>
+                    <input type="text" id="admin-f-peralatan" class="admin-input" placeholder="Contoh: RIB, Rescue Truck">
+                  </div>
+                  <div class="admin-field admin-field-wide">
+                    <label>Kendala Pelaksanaan</label>
+                    <textarea id="admin-f-kendala" class="admin-input" rows="2" placeholder="Kendala di lapangan, atau alasan status Tidak Dilaksanakan"></textarea>
+                  </div>
+                  <div class="admin-field admin-field-wide">
+                    <label>Catatan Lain-lain</label>
+                    <textarea id="admin-f-lain" class="admin-input" rows="2"></textarea>
+                  </div>
                 </div>
+              </details>
+
+              <div class="admin-error-box" id="admin-form-error" style="display:none;"></div>
+
+              <div class="admin-form-actions">
+                <button class="admin-btn-secondary" onclick="resetAdminForm()">Batal / Form Baru</button>
+                <button class="admin-btn-primary" onclick="onSubmitAdminForm()">Simpan Data</button>
               </div>
-              <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-                <span class="admin-summary-chip">Selamat: <b id="admin-korban-sum-selamat">0</b></span>
-                <span class="admin-summary-chip">Meninggal Dunia: <b id="admin-korban-sum-meninggal">0</b></span>
-                <span class="admin-summary-chip">Hilang: <b id="admin-korban-sum-hilang">0</b></span>
-                <span class="admin-summary-chip" style="color:var(--text-faint);">(dihitung otomatis dari daftar korban di bawah)</span>
-              </div>
-              <div id="admin-korban-list" style="margin-top:10px;"></div>
-              <button type="button" class="admin-btn-small" style="margin-top:8px;" onclick="addKorbanRow()">+ Tambah Korban</button>
-            </div>
-
-            <!-- E: Status Operasi -->
-            <div class="admin-section">
-              <div class="admin-section-title">Status Operasi</div>
-              <div class="admin-grid">
-                <div class="admin-field">
-                  <label>Status Operasi</label>
-                  <div id="admin-status-indicator" class="admin-status-indicator"></div>
-                </div>
-                <div class="admin-field admin-field-wide">
-                  <label>Kendala Pelaksanaan</label>
-                  <textarea id="admin-f-kendala" class="admin-input" rows="2" placeholder="Kendala di lapangan, atau alasan status Tidak Dilaksanakan"></textarea>
-                </div>
-              </div>
-            </div>
-
-            <!-- F: Lokasi Ditemukan (kondisional, tampil saat Waktu Berangkat & Waktu Selesai sudah diisi) -->
-            <div class="admin-section" id="admin-section-f" style="display:none;">
-              <div class="admin-section-title">Lokasi Ditemukan</div>
-              <div class="admin-grid">
-                <div class="admin-field admin-field-wide">
-                  <label>Deskripsi Lokasi Ditemukan</label>
-                  <input type="text" id="admin-f-lokasi-ditemukan" class="admin-input" placeholder="Contoh: Dermaga 2">
-                </div>
-                <div class="admin-field">
-                  <label>Latitude Titik Ditemukan</label>
-                  <input type="number" step="0.000001" id="admin-f-lat-ditemukan" class="admin-input">
-                </div>
-                <div class="admin-field">
-                  <label>Longitude Titik Ditemukan</label>
-                  <input type="number" step="0.000001" id="admin-f-lon-ditemukan" class="admin-input">
-                </div>
-                <div class="admin-field">
-                  <label>Jarak dari LKK (km)</label>
-                  <input type="number" step="0.01" min="0" id="admin-f-jarak-lkk" class="admin-input">
-                </div>
-              </div>
-            </div>
-
-            <!-- G: Instansi Terlibat -->
-            <div class="admin-section">
-              <div class="admin-section-title">Instansi Terlibat</div>
-              <div id="admin-instansi-list"></div>
-              <button type="button" class="admin-btn-small" style="margin-top:8px;" onclick="addInstansiRow()">+ Tambah Instansi</button>
-            </div>
-
-            <!-- H: Peralatan -->
-            <div class="admin-section">
-              <div class="admin-section-title">Peralatan Digunakan</div>
-              <div class="admin-checkbox-grid" id="admin-peralatan-grid"></div>
-            </div>
-
-            <!-- I: Lain-lain -->
-            <div class="admin-section">
-              <div class="admin-section-title">Lain-lain</div>
-              <div class="admin-grid">
-                <div class="admin-field">
-                  <label>Biaya (Rp)</label>
-                  <input type="number" step="0.01" min="0" id="admin-f-biaya" class="admin-input">
-                </div>
-                <div class="admin-field admin-field-wide">
-                  <label>Catatan Lain-lain</label>
-                  <textarea id="admin-f-lain" class="admin-input" rows="2"></textarea>
-                </div>
-              </div>
-            </div>
-
-            <div class="admin-error-box" id="admin-form-error" style="display:none;"></div>
-
-            <div class="admin-form-actions">
-              <button class="admin-btn-secondary" onclick="resetAdminForm()">Batal / Form Baru</button>
-              <button class="admin-btn-primary" onclick="onSubmitAdminForm()">Simpan Data</button>
             </div>
           </div>
-        </div>
 
-        <div class="card">
-          <div class="card-head"><h3>Data Operasi Terbaru</h3><span class="sub">operasi yang sudah diinput/diperbarui Admin</span></div>
-          <div class="card-body pad-sm">
-            <div class="admin-table-wrap">
-              <table class="admin-table">
-                <thead><tr><th>ID</th><th>Tanggal</th><th>Kejadian</th><th>Lokasi</th><th>Status</th><th>Aksi</th></tr></thead>
-                <tbody id="admin-ops-tbody"><tr><td colspan="6" class="admin-loading">Memuat...</td></tr></tbody>
-              </table>
+          <!-- ===== TAB 2: UPLOAD FILE EXCEL (BULK IMPORT) ===== -->
+          <div class="admin-tab-panel" id="admin-tab-excel">
+            <div class="card-body admin-form-body">
+              <div class="admin-section" style="border-bottom:none; padding-bottom:0;">
+                <div class="admin-section-title">Upload File Excel</div>
+                <div class="field-hint" style="margin-bottom:12px;">
+                  Unggah laporan bulanan/tahunan dalam format asli (satu sheet per bulan, file <code>.xlsx</code>).
+                  File dibaca &amp; diekstrak langsung di server -- klik <b>Proses &amp; Validasi</b> setelah memilih file
+                  untuk melihat pratinjau &amp; hasil pemeriksaan tiap baris sebelum diimpor ke database.
+                </div>
+
+                <div class="admin-field" style="max-width:220px; margin-bottom:14px;">
+                  <label>Tahun Laporan</label>
+                  <input type="number" id="excel-f-tahun" class="admin-input" placeholder="mis. 2023" min="2000" max="2100">
+                  <div class="field-hint">Dipakai untuk sheet yang nama-nya tidak mengandung tahun (mis. "SEPTEMBER" tanpa "2023"). Boleh dikosongkan kalau semua nama sheet sudah mengandung tahun.</div>
+                </div>
+
+                <div class="excel-dropzone" id="excel-dropzone" tabindex="0"
+                     ondragover="onExcelDragOver(event)" ondragleave="onExcelDragLeave(event)" ondrop="onExcelDrop(event)"
+                     onclick="$('excel-file-input').click()" onkeydown="if(event.key==='Enter')$('excel-file-input').click();">
+                  <div class="dz-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  </div>
+                  <div class="dz-text">Seret &amp; lepas file Excel di sini, atau <span class="dz-link">klik untuk memilih file</span></div>
+                  <div class="dz-sub">Format didukung: .xlsx &middot; maksimum 20MB</div>
+                  <input type="file" id="excel-file-input" accept=".xlsx" style="display:none;" onchange="onExcelFileChosen(this.files)">
+                </div>
+
+                <div class="excel-file-card" id="excel-file-card" style="display:none;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+                  <div class="efc-info">
+                    <div class="efc-name" id="excel-file-name">-</div>
+                    <div class="efc-meta" id="excel-file-meta">-</div>
+                  </div>
+                  <button type="button" class="admin-btn-secondary" onclick="clearExcelFile()">Ganti File</button>
+                </div>
+
+                <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+                  <button type="button" class="admin-btn-primary" id="excel-process-btn" onclick="onProcessExcelFile()" disabled>Proses &amp; Validasi</button>
+                  <button type="button" class="admin-btn-primary" id="excel-import-btn" style="display:none;" onclick="onImportExcelRows()">Impor ke Database</button>
+                </div>
+
+                <div id="excel-result-area" style="display:none; margin-top:20px;">
+                  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;" id="excel-summary-chips"></div>
+                  <div class="admin-section-title" style="font-size:10.5px;">Pratinjau Data (maksimum 25 baris pertama)</div>
+                  <div class="admin-table-wrap" style="margin-top:8px;">
+                    <table class="admin-table" id="excel-preview-table">
+                      <thead></thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                  <div class="admin-error-box" id="excel-error-box" style="display:none; margin-top:14px;"></div>
+                  <div id="excel-import-result" style="display:none; margin-top:14px;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== TAB 3: DATA TERSIMPAN (dulu selalu tampil di bawah kedua tab lain --
+               dipisah jadi tab sendiri supaya tidak terasa redundan/duplikat) ===== -->
+          <div class="admin-tab-panel" id="admin-tab-data">
+            <div class="card-body pad-sm">
+              <div style="display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <h3 style="font-family:var(--display); font-size:12px; font-weight:600; margin:0;">Data Operasi Terbaru</h3>
+                <span class="sub">1000 data terbaru yang tersimpan</span>
+              </div>
+              <div class="admin-table-wrap">
+                <table class="admin-table">
+                  <thead><tr><th>ID</th><th>Tanggal</th><th>Kategori</th><th>Lokasi</th><th>Wilayah</th><th>Status</th><th>Aksi</th></tr></thead>
+                  <tbody id="admin-ops-tbody"><tr><td colspan="7" class="admin-loading">Memuat...</td></tr></tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>

@@ -1,3 +1,4 @@
+
 /* ================= API CLIENT =================
    Wrapper tipis di atas fetch() untuk semua endpoint backend Flask.
    Frontend disajikan oleh Flask sendiri (backend/static), jadi API selalu
@@ -19,6 +20,27 @@ async function apiRequest(path, { method = 'GET', body = null, auth = false } = 
   let res, json;
   try {
     res = await fetch(API_BASE + path, opts);
+  } catch (err) {
+    throw new Error('Tidak dapat terhubung ke server API. Pastikan backend Flask berjalan.');
+  }
+  try {
+    json = await res.json();
+  } catch (err) {
+    throw new Error('Respons server tidak valid.');
+  }
+  if (!res.ok && res.status !== 401) {
+    throw new Error(json.message || `Request gagal (HTTP ${res.status})`);
+  }
+  return { status: res.status, ...json };
+}
+
+/* Upload file (multipart/form-data) -- terpisah dari apiRequest() karena
+   body-nya FormData, bukan JSON (Content-Type diisi otomatis oleh browser
+   dengan boundary yang benar, JANGAN di-set manual). */
+async function apiUpload(path, formData) {
+  let res, json;
+  try {
+    res = await fetch(API_BASE + path, { method: 'POST', credentials: 'include', body: formData });
   } catch (err) {
     throw new Error('Tidak dapat terhubung ke server API. Pastikan backend Flask berjalan.');
   }
@@ -72,4 +94,11 @@ const Api = {
   adminOperasiCreate: (payload) => apiRequest('/admin/operasi', { method: 'POST', body: payload, auth: true }),
   adminOperasiUpdate: (id, payload) => apiRequest(`/admin/operasi/${id}`, { method: 'PUT', body: payload, auth: true }),
   adminOperasiDelete: (id) => apiRequest(`/admin/operasi/${id}`, { method: 'DELETE', auth: true }),
+  adminOperasiBulkImport: (rows) => apiRequest('/admin/operasi/bulk', { method: 'POST', body: { rows }, auth: true }),
+  adminOperasiBulkPreview: (file, tahun) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (tahun) fd.append('tahun', tahun);
+    return apiUpload('/admin/operasi/bulk/preview', fd);
+  },
 };

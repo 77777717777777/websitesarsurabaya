@@ -15,6 +15,7 @@ const KATEGORI_LABEL_OVERRIDES = {
   'KECELAKAAN KAPAL': 'Kecelakaan Kapal',
   'KECELAKAAN PESAWAT UDARA': 'Kecelakaan Pesawat Udara',
   'KONDISI YANG MEMBAHAYAKAN JIWA MANUSIA': 'Kondisi yang Membahayakan Jiwa Manusia',
+  'PENGECEKAN SIGNAL DISTRESS': 'Pengecekan Signal Distress',
 };
 function toDisplayKategoriLabel(raw){
   if (!raw) return raw;
@@ -22,6 +23,41 @@ function toDisplayKategoriLabel(raw){
   return String(raw).toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 function $(id){ return document.getElementById(id); }
+
+/* Daftar kategori & klasifikasi standar untuk dropdown form manual -- SAMA
+   PERSIS dengan CATEGORY_KEYWORDS / KATEGORI_MAP di
+   backend/services/excel_import_service.py, supaya nilai yang diketik manual
+   selalu konsisten dengan hasil impor Excel. Beda dari CATS/REF.klasifikasi
+   (dibangun dari nilai yang SUDAH ADA di database lewat /api/ref-nilai) --
+   daftar di sini tetap lengkap walau suatu kategori belum pernah dipakai
+   sekalipun (mis. "PENGECEKAN SIGNAL DISTRESS"). Diurutkan dari yang paling
+   sering dipakai di data historis, supaya pilihan umum ada di atas. */
+const ADMIN_KATEGORI_OPTIONS = [
+  'KONDISI YANG MEMBAHAYAKAN JIWA MANUSIA',
+  'KECELAKAAN KAPAL',
+  'BENCANA',
+  'KECELAKAAN DGN PENANGANAN KHUSUS',
+  'KECELAKAAN PESAWAT UDARA',
+  'PENGECEKAN SIGNAL DISTRESS',
+];
+const ADMIN_KLASIFIKASI_OPTIONS = [
+  'Orang Tenggelam/Hanyut/Tercebur',
+  'Orang Terseret Arus/Ombak',
+  'Kapal - Tenggelam/Terbalik/Kandas/Rusak',
+  'Man Over Boat (MOB)',
+  'Orang Hilang/Tersesat',
+  'Orang Terjatuh',
+  'Kapal - Hilang Kontak',
+  'Bencana Alam - Banjir',
+  'Bencana Alam - Longsor',
+  'Kapal - Terbakar',
+  'Kecelakaan Lalu Lintas',
+  'Evakuasi/Medevac',
+  'Percobaan Bunuh Diri',
+  'Orang Tertimpa/Terjepit/Terjebak',
+  'Pesawat Jatuh',
+  'Bencana Alam - Gempa',
+];
 
 /* Tahun kalender berjalan belum tentu punya data 12 bulan penuh -- tandai dengan
    asterisk di semua tempat yang menampilkan tahun sebagai teks ke user (BUKAN untuk
@@ -1534,118 +1570,126 @@ async function renderPrediksi(){
   }
 
 /* ================= ADMIN: INPUT DATA OPERASI =================
-   Skema kejadian_sar tidak punya tabel relasional korban/instansi/peralatan --
-   hanya kolom agregat s_org/md_org/h_org dan teks bebas instansi_jml_person/peralatan.
-   Form korban dipertahankan sebagai multi-row per-individu di UI (untuk kemudahan
-   input jumlah per status), tapi saat disimpan hanya JUMLAHNYA per status yang
-   dikirim ke backend (s_org/md_org/h_org), bukan datanya (nama/usia/dll -- karena
-   kolom itu tidak ada di kejadian_sar). Instansi & peralatan diinput sebagai
-   ringkasan teks bebas (instansi_jml_person, peralatan), bukan lagi checkbox/dropdown
-   dari tabel referensi yang sudah tidak ada. */
+   Dua mode input, sesuai tab yang aktif:
+     1. "Input Manual Per Kejadian" -- form satuan. Field-nya field kolom
+        kejadian_sar langsung: S/MD/H disimpan sebagai angka agregat (kolom
+        s_org/md_org/h_org), BUKAN baris per-individu korban -- skema
+        kejadian_sar memang cuma punya kolom agregat, tidak ada tabel korban
+        terpisah (lihat catatan skema di routes/public_routes.py & admin_routes.py).
+     2. "Upload File Excel (Bulk Import)" -- drag & drop / file picker, file
+        dikirim APA ADANYA ke server (POST /admin/operasi/bulk/preview) yang
+        mem-parsing format laporan asli & memvalidasinya dengan aturan yang
+        SAMA dengan input manual (lihat services/excel_import_service.py &
+        normalize_payload() di admin_routes.py). Parsing TIDAK dilakukan di
+        browser -- lihat catatan di bagian "ADMIN: UPLOAD EXCEL" di bawah.
+   ================================================================= */
+
+let adminActiveTab = 'manual';
+let adminFormInitialized = false;
+
+function switchAdminTab(tab){
+  adminActiveTab = tab;
+  ['manual', 'excel', 'data'].forEach(t => {
+    $(`admin-tab-btn-${t}`).classList.toggle('active', tab === t);
+    $(`admin-tab-btn-${t}`).setAttribute('aria-selected', tab === t);
+    $(`admin-tab-${t}`).classList.toggle('active', tab === t);
+  });
+  if (tab === 'manual') initAdminMapPicker();
+}
+
+/* Kategori & Klasifikasi: dropdown (bukan lagi text+datalist), diisi dari
+   ADMIN_KATEGORI_OPTIONS / ADMIN_KLASIFIKASI_OPTIONS (daftar standar) DITAMBAH
+   nilai apa pun yang sudah ada di database tapi belum ada di daftar standar
+   (mis. hasil ketikan bebas dari versi form sebelum ini) -- supaya tidak ada
+   data lama yang jadi "hilang" dari pilihan dropdown. */
 function buildAdminSelectOptions(){
-  const katEl = $('admin-f-kategori'), klEl = $('admin-f-klasifikasi'), sumberEl = $('admin-f-sumber'), posEl = $('admin-f-pos');
-  if (katEl) katEl.innerHTML = CATS.map(c=>`<option value="${c.id}">${c.label}</option>`).join('');
-  if (klEl) klEl.innerHTML = '<option value="">- Tidak dipilih -</option>' + (REF.klasifikasi||[]).map(k=>`<option value="${k.nilai}">${k.nilai}</option>`).join('');
-  if (sumberEl) sumberEl.innerHTML = '<option value="">- Tidak dipilih -</option>' + (REF.sumber||[]).map(s=>`<option value="${s.nilai}">${s.nilai}</option>`).join('');
-  if (posEl) posEl.innerHTML = WILAYAH_LIST.map(w=>`<option value="${w.id}">${w.label}</option>`).join('');
-  buildPeralatanCheckboxes();
+  const selKat = $('admin-f-kategori'), selKl = $('admin-f-klasifikasi'), dlSumber = $('admin-dl-sumber');
+  if (selKat){
+    const extra = CATS.map(c => c.id).filter(id => !ADMIN_KATEGORI_OPTIONS.includes(id));
+    const opts = ADMIN_KATEGORI_OPTIONS.concat(extra);
+    selKat.innerHTML = '<option value="">-- Pilih Kategori --</option>' +
+      opts.map(id => `<option value="${id}">${toDisplayKategoriLabel(id)}</option>`).join('');
+  }
+  if (selKl){
+    const knownVals = (REF.klasifikasi || []).map(k => k.nilai);
+    const extra = knownVals.filter(v => !ADMIN_KLASIFIKASI_OPTIONS.includes(v));
+    const opts = ADMIN_KLASIFIKASI_OPTIONS.concat(extra);
+    selKl.innerHTML = '<option value="">-- Pilih Klasifikasi (opsional) --</option>' +
+      opts.map(v => `<option value="${v}">${v}</option>`).join('');
+  }
+  if (dlSumber) dlSumber.innerHTML = (REF.sumber || []).map(s => `<option value="${s.nilai}">`).join('');
+  buildAdminWilayahCheckboxes();
 }
-function buildPeralatanCheckboxes(){
-  // Tabel ref_peralatan sudah tidak ada -- peralatan sekarang kolom teks bebas
-  // (lihat #admin-f-peralatan-teks di HTML), grid checkbox lama dinonaktifkan.
-  const grid = $('admin-peralatan-grid'); if (!grid) return;
-  grid.innerHTML = '<div class="admin-empty-hint">Input peralatan sekarang berupa teks bebas (lihat kolom di atas), bukan checkbox tabel referensi.</div>';
+
+/* Set value ke <select>, dan kalau value-nya tidak ada di antara <option>
+   yang ada (mis. sedang mengedit baris lama dengan nilai kategori/klasifikasi
+   yang unik/tidak standar), tambahkan sebagai opsi ekstra dulu -- supaya
+   data lama tetap tampil apa adanya, bukan diam-diam berubah jadi kosong. */
+function setAdminSelectValue(selectId, value){
+  const el = $(selectId); if (!el) return;
+  if (value && !Array.from(el.options).some(o => o.value === value)){
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = `${value} (nilai lama)`;
+    el.appendChild(opt);
+  }
+  el.value = value || '';
 }
+function buildAdminWilayahCheckboxes(){
+  const grid = $('admin-wilayah-checkgrid'); if (!grid) return;
+  grid.innerHTML = WILAYAH_LIST.map(w => `
+    <label class="admin-checkbox-opt"><input type="checkbox" value="${w.id}" class="admin-wilayah-cb">${w.label}</label>
+  `).join('') || '<div class="admin-empty-hint">Belum ada data wilayah.</div>';
+}
+function getSelectedAdminWilayah(){
+  const checked = Array.from(document.querySelectorAll('.admin-wilayah-cb:checked')).map(cb => cb.value);
+  const extra = ($('admin-f-wilayah-lain').value || '').split(',').map(s => s.trim()).filter(Boolean);
+  return Array.from(new Set([...checked, ...extra]));
+}
+function setSelectedAdminWilayah(wilayahMappedStr){
+  const parts = (wilayahMappedStr || '').split(',').map(s => s.trim()).filter(Boolean);
+  const known = new Set(WILAYAH_LIST.map(w => w.id));
+  document.querySelectorAll('.admin-wilayah-cb').forEach(cb => { cb.checked = parts.includes(cb.value); });
+  $('admin-f-wilayah-lain').value = parts.filter(p => !known.has(p)).join(', ');
+}
+
 /* Status Operasi TIDAK diinput manual -- dihitung otomatis dari kelengkapan
-   Waktu Berangkat & Waktu Selesai (mencerminkan kolom status_operasi
-   di database), sama seperti "Lokasi Ditemukan" hanya tampil saat keduanya terisi. */
+   Waktu Berangkat / Waktu Tiba: "Tidak Dilaksanakan" HANYA kalau dua-duanya
+   kosong (aturan yang sama dipakai di seluruh data historis, lihat
+   normalize_payload() di routes/admin_routes.py). Backend menghitung ulang
+   nilai yang sama secara independen, jadi indikator ini murni bantuan
+   visual, bukan sumber kebenaran. */
 function updateStatusIndicator(){
+  const el = $('admin-status-indicator'); if (!el) return;
   const berangkat = $('admin-f-waktu-berangkat').value;
-  const selesai = $('admin-f-waktu-selesai').value;
-  const dilaksanakan = !!(berangkat && selesai);
-  const el = $('admin-status-indicator');
+  const tiba = $('admin-f-waktu-tiba').value;
+  const dilaksanakan = !!(berangkat || tiba);
   el.textContent = 'Status akan tercatat sebagai: ' + (dilaksanakan ? 'Dilaksanakan' : 'Tidak Dilaksanakan');
   el.className = 'admin-status-indicator ' + (dilaksanakan ? 'is-dilaksanakan' : 'is-tidak-dilaksanakan');
-  $('admin-section-f').style.display = dilaksanakan ? 'block' : 'none';
 }
 
-/* ---- Korban: form multi-row per-individu DIPERTAHANKAN di UI untuk kemudahan
-   input, tapi backend baru cuma menyimpan agregat s_org/md_org/h_org -- summary
-   di bawah dihitung dari baris-baris ini dan itulah yang benar-benar dikirim
-   ke server (lihat collectAdminFormPayload). */
-let korbanRows = [];
-let korbanRowSeq = 0;
-function addKorbanRow(data){
-  const id = ++korbanRowSeq;
-  korbanRows.push({ id, nama:'', jenis_kelamin:'L', usia:'', pekerjaan:'', alamat_desa:'', alamat_kecamatan:'', alamat_kabupaten:'', status:'Selamat', ...(data||{}) });
-  renderKorbanRows();
-}
-function removeKorbanRow(id){
-  korbanRows = korbanRows.filter(r=>r.id!==id);
-  renderKorbanRows();
-}
-function updateKorbanField(id, field, value){
-  const row = korbanRows.find(r=>r.id===id);
-  if (row) row[field] = value;
-  if (field === 'status') recomputeKorbanSummary();
-}
-function recomputeKorbanSummary(){
-  const s = {Selamat:0, 'Meninggal Dunia':0, Hilang:0};
-  korbanRows.forEach(r=>{ if (s[r.status] !== undefined) s[r.status]++; });
-  $('admin-korban-sum-selamat').textContent = s['Selamat'];
-  $('admin-korban-sum-meninggal').textContent = s['Meninggal Dunia'];
-  $('admin-korban-sum-hilang').textContent = s['Hilang'];
-}
-function renderKorbanRows(){
-  const el = $('admin-korban-list');
-  if (!korbanRows.length){ el.innerHTML = '<div class="admin-empty-hint">Belum ada data korban ditambahkan.</div>'; recomputeKorbanSummary(); return; }
-  el.innerHTML = korbanRows.map(r=>`
-    <div class="admin-multi-row">
-      <div class="admin-field" style="flex:1.4;"><label>Nama</label><input class="admin-input" value="${r.nama||''}" oninput="updateKorbanField(${r.id},'nama',this.value)"></div>
-      <div class="admin-field" style="flex:.7;"><label>J. Kelamin</label><select class="admin-input" onchange="updateKorbanField(${r.id},'jenis_kelamin',this.value)"><option value="L" ${r.jenis_kelamin==='L'?'selected':''}>L</option><option value="P" ${r.jenis_kelamin==='P'?'selected':''}>P</option></select></div>
-      <div class="admin-field" style="flex:.6;"><label>Usia</label><input type="number" min="0" class="admin-input" value="${r.usia||''}" oninput="updateKorbanField(${r.id},'usia',this.value)"></div>
-      <div class="admin-field" style="flex:1;"><label>Pekerjaan</label><input class="admin-input" value="${r.pekerjaan||''}" oninput="updateKorbanField(${r.id},'pekerjaan',this.value)"></div>
-      <div class="admin-field" style="flex:1;"><label>Desa</label><input class="admin-input" value="${r.alamat_desa||''}" oninput="updateKorbanField(${r.id},'alamat_desa',this.value)"></div>
-      <div class="admin-field" style="flex:1;"><label>Kecamatan</label><input class="admin-input" value="${r.alamat_kecamatan||''}" oninput="updateKorbanField(${r.id},'alamat_kecamatan',this.value)"></div>
-      <div class="admin-field" style="flex:1;"><label>Kabupaten</label><input class="admin-input" value="${r.alamat_kabupaten||''}" oninput="updateKorbanField(${r.id},'alamat_kabupaten',this.value)"></div>
-      <div class="admin-field" style="flex:1;"><label>Status</label><select class="admin-input" onchange="updateKorbanField(${r.id},'status',this.value)">
-        <option value="Selamat" ${r.status==='Selamat'?'selected':''}>Selamat</option>
-        <option value="Meninggal Dunia" ${r.status==='Meninggal Dunia'?'selected':''}>Meninggal Dunia</option>
-        <option value="Hilang" ${r.status==='Hilang'?'selected':''}>Hilang</option>
-      </select></div>
-      <button type="button" class="admin-table-action admin-table-action-danger" onclick="removeKorbanRow(${r.id})">Hapus</button>
-    </div>`).join('');
-  recomputeKorbanSummary();
-}
-
-/* ---- Instansi: input teks bebas (pengganti multi-select tabel referensi yang
-   tidak ada lagi). Disimpan sebagai ringkasan string "Nama(jumlah), Nama2(jumlah2)"
-   ke kolom instansi_jml_person, sesuai keputusan form terstruktur -> teks ringkasan. */
-let instansiRows = [];
-let instansiRowSeq = 0;
-function addInstansiRow(data){
-  const id = ++instansiRowSeq;
-  instansiRows.push({ id, nama_instansi:'', jumlah_personel:1, ...(data||{}) });
-  renderInstansiRows();
-}
-function removeInstansiRow(id){ instansiRows = instansiRows.filter(r=>r.id!==id); renderInstansiRows(); }
-function updateInstansiField(id, field, value){ const row = instansiRows.find(r=>r.id===id); if (row) row[field] = value; }
-function renderInstansiRows(){
-  const el = $('admin-instansi-list');
-  if (!instansiRows.length){ el.innerHTML = '<div class="admin-empty-hint">Belum ada instansi ditambahkan.</div>'; return; }
-  el.innerHTML = instansiRows.map(r=>`
-    <div class="admin-multi-row">
-      <div class="admin-field" style="flex:2;"><label>Instansi</label><input class="admin-input" value="${r.nama_instansi||''}" oninput="updateInstansiField(${r.id},'nama_instansi',this.value)"></div>
-      <div class="admin-field" style="flex:1;"><label>Jumlah Personel</label><input type="number" min="0" class="admin-input" value="${r.jumlah_personel}" oninput="updateInstansiField(${r.id},'jumlah_personel',this.value)"></div>
-      <button type="button" class="admin-table-action admin-table-action-danger" onclick="removeInstansiRow(${r.id})">Hapus</button>
-    </div>`).join('');
+function validateKorbanVsPob(){
+  const hint = $('admin-korban-hint'); if (!hint) return;
+  const pobRaw = $('admin-f-pob').value;
+  const pob = pobRaw === '' ? null : parseInt(pobRaw, 10);
+  const s = parseInt($('admin-f-s').value || '0', 10);
+  const md = parseInt($('admin-f-md').value || '0', 10);
+  const h = parseInt($('admin-f-h').value || '0', 10);
+  const total = s + md + h;
+  if (pob != null && total > pob){
+    hint.textContent = `Total korban (${total}) melebihi POB (${pob}).`;
+    hint.style.color = '#FF9086';
+  } else {
+    hint.textContent = 'Total korban (S + MD + H) tidak boleh melebihi POB.';
+    hint.style.color = '';
+  }
 }
 
 /* ---- Mini map picker (Leaflet asli, dengan marker draggable) ---- */
 function initAdminMapPicker(){
   const el = $('admin-map-picker'); if (!el) return;
   const entry = getOrCreateLeafletMap('admin-map-picker');
-  entry.map.invalidateSize();
+  setTimeout(() => entry.map.invalidateSize(), 60);
   entry.markersLayer.clearLayers();
 
   entry.map.off('click', onAdminMapClick);
@@ -1680,6 +1724,10 @@ function onAdminMapClick(e){
   $('admin-f-lon').value = lng.toFixed(6);
   placeAdminMapMarker(lat, lng);
 }
+function onAdminLatLonInput(){
+  const lat = parseFloat($('admin-f-lat').value), lon = parseFloat($('admin-f-lon').value);
+  if (!isNaN(lat) && !isNaN(lon)) placeAdminMapMarker(lat, lon, {pan:true});
+}
 
 let editingOpId = null;
 function toLocalInput(dtStr){
@@ -1689,45 +1737,44 @@ function toLocalInput(dtStr){
   const pad = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
 function resetAdminForm(){
   editingOpId = null;
-  $('admin-form-title').textContent = 'Form Operasi Baru';
+  $('admin-form-title').textContent = 'Form Kejadian Baru';
   $('admin-f-id').value = '';
-  $('admin-f-kategori').value = CATS[0] ? CATS[0].id : '';
-  $('admin-f-klasifikasi').value = '';
-  $('admin-f-objek').value = '';
   $('admin-f-waktu-kejadian').value = '';
-  $('admin-f-tgl-lapor').value = '';
-  $('admin-f-sumber').value = '';
-  $('admin-f-nama-pelapor').value = '';
-  $('admin-f-instansi-pelapor').value = '';
-  $('admin-f-hp-pelapor').value = '';
-  $('admin-f-narasi').value = '';
+  $('admin-f-kategori').value = '';
+  $('admin-f-klasifikasi').value = '';
+  $('admin-f-jenis').value = '';
   $('admin-f-lkk').value = '';
   $('admin-f-lat').value = '';
   $('admin-f-lon').value = '';
-  $('admin-f-radial').value = '';
-  $('admin-f-pos').value = WILAYAH_LIST[0] ? WILAYAH_LIST[0].id : '';
+  document.querySelectorAll('.admin-wilayah-cb').forEach(cb => cb.checked = false);
+  $('admin-f-wilayah-lain').value = '';
+  $('admin-f-pob').value = '';
+  $('admin-f-s').value = 0;
+  $('admin-f-md').value = 0;
+  $('admin-f-h').value = 0;
+  $('admin-f-sumber').value = '';
+  $('admin-f-tgl-lapor').value = '';
   $('admin-f-waktu-berangkat').value = '';
   $('admin-f-waktu-tiba').value = '';
   $('admin-f-waktu-selesai').value = '';
   $('admin-f-waktu-siap').value = '';
   $('admin-f-waktu-tempuh').value = '';
-  $('admin-f-jarak-laut').value = '';
-  $('admin-f-jarak-darat').value = '';
-  $('admin-f-pob').value = 0;
-  $('admin-f-kendala').value = '';
+  $('admin-f-biaya').value = '';
+  $('admin-f-lokasi-ditemukan').value = '';
   $('admin-f-lat-ditemukan').value = '';
   $('admin-f-lon-ditemukan').value = '';
-  $('admin-f-lokasi-ditemukan').value = '';
-  $('admin-f-jarak-lkk').value = '';
-  $('admin-f-biaya').value = '';
+  $('admin-f-instansi').value = '';
+  $('admin-f-peralatan').value = '';
+  $('admin-f-kendala').value = '';
   $('admin-f-lain').value = '';
-  korbanRows = []; renderKorbanRows();
-  instansiRows = []; renderInstansiRows();
-  document.querySelectorAll('#admin-peralatan-grid input').forEach(cb=>cb.checked=false);
   $('admin-form-error').style.display = 'none';
+  validateKorbanVsPob();
   updateStatusIndicator();
+  const entry = _leafletMaps['admin-map-picker'];
+  if (entry) entry.markersLayer.clearLayers();
   initAdminMapPicker();
 }
 
@@ -1736,54 +1783,50 @@ async function loadAdminOpToForm(id){
   if (!res.success){ showAdminToast(res.message || 'Gagal memuat data operasi.', true); return; }
   const op = res.data;
   editingOpId = id;
-  $('admin-form-title').textContent = 'Edit Operasi #' + id;
+  switchAdminTab('manual');
+  $('admin-form-title').textContent = 'Edit Kejadian #' + id;
   $('admin-f-id').value = op.id_operasi;
-  $('admin-f-kategori').value = op.nama_kategori || '';
-  $('admin-f-klasifikasi').value = op.nama_klasifikasi || '';
-  $('admin-f-objek').value = op.lokasi_kejadian_deskripsi || '';
   $('admin-f-waktu-kejadian').value = toLocalInput(op.waktu_kejadian);
-  $('admin-f-tgl-lapor').value = toLocalInput(op.waktu_lapor);
+  setAdminSelectValue('admin-f-kategori', op.kategori || '');
+  setAdminSelectValue('admin-f-klasifikasi', op.kategori_kejadian || '');
+  $('admin-f-jenis').value = op.jenis_kecelakaan || '';
+  $('admin-f-lkk').value = op.posisi_koordinat_area || '';
+  $('admin-f-lat').value = op.latitude_lkk != null ? op.latitude_lkk : '';
+  $('admin-f-lon').value = op.longitude_lkk != null ? op.longitude_lkk : '';
+  setSelectedAdminWilayah(op.wilayah_mapped);
+  $('admin-f-pob').value = op.pob != null ? op.pob : '';
+  $('admin-f-s').value = op.s_org || 0;
+  $('admin-f-md').value = op.md_org || 0;
+  $('admin-f-h').value = op.h_org || 0;
   $('admin-f-sumber').value = op.sumber_berita || '';
-  $('admin-f-narasi').value = op.narasi_kejadian || '';
-  $('admin-f-lkk').value = op.lokasi_kejadian_deskripsi || '';
-  $('admin-f-lat').value = op.lokasi_kejadian_lat != null ? op.lokasi_kejadian_lat : '';
-  $('admin-f-lon').value = op.lokasi_kejadian_lon != null ? op.lokasi_kejadian_lon : '';
-  $('admin-f-pos').value = op.wilayah_mapped || '';
+  $('admin-f-tgl-lapor').value = toLocalInput(op.waktu_lapor);
   $('admin-f-waktu-berangkat').value = toLocalInput(op.waktu_berangkat);
   $('admin-f-waktu-tiba').value = toLocalInput(op.waktu_tiba);
+  $('admin-f-waktu-selesai').value = toLocalInput(op.waktu_selesai);
   $('admin-f-waktu-siap').value = op.waktu_siap != null ? op.waktu_siap : '';
   $('admin-f-waktu-tempuh').value = op.waktu_tempuh_menit != null ? op.waktu_tempuh_menit : '';
-  $('admin-f-pob').value = op.pob != null ? op.pob : 0;
-  $('admin-f-waktu-selesai').value = toLocalInput(op.waktu_selesai);
-  $('admin-f-lat-ditemukan').value = op.lokasi_ditemukan_lat != null ? op.lokasi_ditemukan_lat : '';
-  $('admin-f-lon-ditemukan').value = op.lokasi_ditemukan_lon != null ? op.lokasi_ditemukan_lon : '';
-  $('admin-f-lokasi-ditemukan').value = op.lokasi_ditemukan_deskripsi || '';
-
-  // Isi ulang baris korban dari agregat sederhana (jumlah_selamat/meninggal/hilang)
-  // sebagai baris tanpa nama -- placeholder sampai form disederhanakan jadi
-  // input angka langsung.
-  korbanRows = []; korbanRowSeq = 0;
-  const jumlahSelamat = op.jumlah_selamat || 0, jumlahMeninggal = op.jumlah_meninggal || 0, jumlahHilang = op.jumlah_hilang || 0;
-  for (let i=0;i<jumlahSelamat;i++) addKorbanRow({status:'Selamat'});
-  for (let i=0;i<jumlahMeninggal;i++) addKorbanRow({status:'Meninggal Dunia'});
-  for (let i=0;i<jumlahHilang;i++) addKorbanRow({status:'Hilang'});
-  if (!jumlahSelamat && !jumlahMeninggal && !jumlahHilang) renderKorbanRows();
-
-  instansiRows = []; instansiRowSeq = 0;
-  renderInstansiRows();
+  $('admin-f-biaya').value = op.biaya_rp || '';
+  $('admin-f-lokasi-ditemukan').value = op.lokasi_ditemukan || '';
+  $('admin-f-lat-ditemukan').value = op.latitude_ditemukan != null ? op.latitude_ditemukan : '';
+  $('admin-f-lon-ditemukan').value = op.longitude_ditemukan != null ? op.longitude_ditemukan : '';
+  $('admin-f-instansi').value = op.instansi_jml_person || '';
+  $('admin-f-peralatan').value = op.peralatan || '';
+  $('admin-f-kendala').value = op.kendala_pelaksanaan_ops_sar || '';
+  $('admin-f-lain').value = op.lainlain || '';
 
   $('admin-form-error').style.display = 'none';
+  validateKorbanVsPob();
   updateStatusIndicator();
   initAdminMapPicker();
   document.querySelector('main.content').scrollTo({top:0, behavior:'smooth'});
 }
 
 async function deleteAdminOp(id){
-  if (!confirm('Hapus data operasi #' + id + '? Tindakan ini tidak dapat dibatalkan.')) return;
+  if (!confirm('Hapus data kejadian #' + id + '? Tindakan ini tidak dapat dibatalkan.')) return;
   try {
     const res = await Api.adminOperasiDelete(id);
     if (!res.success){ showAdminToast(res.message || 'Gagal menghapus data.', true); return; }
-    showAdminToast('Data operasi berhasil dihapus.');
+    showAdminToast('Data kejadian berhasil dihapus.');
     if (editingOpId === id) resetAdminForm();
     renderAdminOpsTable();
     if (state.page === 'beranda') render();
@@ -1795,21 +1838,24 @@ async function deleteAdminOp(id){
 function validateAdminForm(){
   const val = id => $(id).value;
   const errors = [];
-  if (!val('admin-f-kategori')) errors.push('Kategori Kejadian wajib diisi.');
   if (!val('admin-f-waktu-kejadian')) errors.push('Waktu Kejadian wajib diisi.');
-  if (!val('admin-f-lkk').trim()) errors.push('Deskripsi Lokasi Kejadian/LKK wajib diisi.');
+  if (!val('admin-f-kategori').trim()) errors.push('Kategori Kejadian wajib diisi.');
+  if (!val('admin-f-jenis').trim()) errors.push('Jenis Kecelakaan wajib diisi.');
+
   const lat = parseFloat(val('admin-f-lat')), lon = parseFloat(val('admin-f-lon'));
   if (val('admin-f-lat') === '' || isNaN(lat)) errors.push('Latitude wajib diisi.');
   else if (lat < -90 || lat > 90) errors.push('Koordinat tidak valid (Latitude harus -90 s.d. 90).');
   if (val('admin-f-lon') === '' || isNaN(lon)) errors.push('Longitude wajib diisi.');
   else if (lon < -180 || lon > 180) errors.push('Koordinat tidak valid (Longitude harus -180 s.d. 180).');
-  if (!val('admin-f-pos')) errors.push('Wilayah wajib diisi.');
 
-  const pob = parseInt(val('admin-f-pob') || '0', 10);
-  const s = {Selamat:0, 'Meninggal Dunia':0, Hilang:0};
-  korbanRows.forEach(r=>{ if (s[r.status] !== undefined) s[r.status]++; });
-  const total = s['Selamat'] + s['Meninggal Dunia'] + s['Hilang'];
-  if (pob && total > pob) errors.push('Jumlah korban (Selamat + Meninggal Dunia + Hilang) tidak boleh melebihi POB.');
+  if (!getSelectedAdminWilayah().length) errors.push('Wilayah Terdampak wajib diisi (pilih minimal satu, atau isi kolom "wilayah lainnya").');
+
+  const pobRaw = val('admin-f-pob');
+  const pob = pobRaw === '' ? null : parseInt(pobRaw, 10);
+  const s = parseInt(val('admin-f-s') || '0', 10);
+  const md = parseInt(val('admin-f-md') || '0', 10);
+  const h = parseInt(val('admin-f-h') || '0', 10);
+  if (pob != null && (s + md + h) > pob) errors.push('Jumlah Selamat + Meninggal Dunia + Hilang tidak boleh melebihi POB.');
 
   const waktuBerangkat = val('admin-f-waktu-berangkat');
   const waktuSelesai = val('admin-f-waktu-selesai');
@@ -1819,7 +1865,7 @@ function validateAdminForm(){
   const kejadianDT = val('admin-f-waktu-kejadian') ? new Date(val('admin-f-waktu-kejadian')) : null;
   if (kejadianDT && waktuSelesai && new Date(waktuSelesai) < kejadianDT) errors.push('Waktu Selesai tidak boleh lebih awal dari Waktu Kejadian.');
   const tglLapor = val('admin-f-tgl-lapor');
-  if (kejadianDT && tglLapor && new Date(tglLapor) < kejadianDT) errors.push('Waktu Laporan tidak boleh lebih awal dari Waktu Kejadian.');
+  if (kejadianDT && tglLapor && new Date(tglLapor) < kejadianDT) errors.push('Waktu Lapor tidak boleh lebih awal dari Waktu Kejadian.');
 
   return errors;
 }
@@ -1828,28 +1874,18 @@ function collectAdminFormPayload(){
   const val = id => $(id).value;
   const num = (id) => val(id) === '' ? null : Number(val(id));
   const intVal = (id) => val(id) === '' ? null : parseInt(val(id), 10);
-  const dt = (id) => val(id) ? val(id).replace('T',' ') + ':00' : null;
-
-  const s = {Selamat:0, 'Meninggal Dunia':0, Hilang:0};
-  korbanRows.forEach(r=>{ if (s[r.status] !== undefined) s[r.status]++; });
-
-  // Ringkasan teks instansi, format "Nama(jumlah), Nama2(jumlah2)" -- sesuai
-  // pola yang sudah ada di data historis kejadian_sar.
-  const instansiRingkasan = instansiRows
-    .filter(r=>r.nama_instansi && r.nama_instansi.trim())
-    .map(r=>`${r.nama_instansi.trim()}(${parseInt(r.jumlah_personel||0,10)})`)
-    .join(', ');
+  const dt = (id) => val(id) ? val(id).replace('T', ' ') + ':00' : null;
 
   return {
     waktu_kejadian: dt('admin-f-waktu-kejadian'),
-    kategori: val('admin-f-kategori') || null,
-    kategori_kejadian: val('admin-f-klasifikasi') || null,
-    posisi_koordinat_area: val('admin-f-lkk') || null,
-    jenis_kecelakaan: val('admin-f-narasi') || null,
+    kategori: val('admin-f-kategori').trim() || null,
+    kategori_kejadian: val('admin-f-klasifikasi').trim() || null,
+    jenis_kecelakaan: val('admin-f-jenis').trim() || null,
+    posisi_koordinat_area: val('admin-f-lkk').trim() || null,
     latitude_lkk: num('admin-f-lat'),
     longitude_lkk: num('admin-f-lon'),
-    wilayah_mapped: val('admin-f-pos') || null,
-    sumber_berita: val('admin-f-sumber') || null,
+    wilayah_mapped: getSelectedAdminWilayah().join(', ') || null,
+    sumber_berita: val('admin-f-sumber').trim() || null,
     waktu_lapor: dt('admin-f-tgl-lapor'),
     waktu_berangkat: dt('admin-f-waktu-berangkat'),
     waktu_tiba: dt('admin-f-waktu-tiba'),
@@ -1857,13 +1893,17 @@ function collectAdminFormPayload(){
     waktu_siap: num('admin-f-waktu-siap'),
     waktu_tempuh_menit: num('admin-f-waktu-tempuh'),
     pob: intVal('admin-f-pob'),
-    s_org: s['Selamat'],
-    md_org: s['Meninggal Dunia'],
-    h_org: s['Hilang'],
-    lokasi_ditemukan: val('admin-f-lokasi-ditemukan') || null,
+    s_org: intVal('admin-f-s') || 0,
+    md_org: intVal('admin-f-md') || 0,
+    h_org: intVal('admin-f-h') || 0,
+    lokasi_ditemukan: val('admin-f-lokasi-ditemukan').trim() || null,
     latitude_ditemukan: num('admin-f-lat-ditemukan'),
     longitude_ditemukan: num('admin-f-lon-ditemukan'),
-    instansi_jml_person: instansiRingkasan || null,
+    kendala_pelaksanaan_ops_sar: val('admin-f-kendala').trim() || null,
+    instansi_jml_person: val('admin-f-instansi').trim() || null,
+    peralatan: val('admin-f-peralatan').trim() || null,
+    biaya_rp: val('admin-f-biaya').trim() || null,
+    lainlain: val('admin-f-lain').trim() || null,
   };
 }
 
@@ -1872,7 +1912,7 @@ function onSubmitAdminForm(){
   const errBox = $('admin-form-error');
   if (errors.length){
     errBox.style.display = 'block';
-    errBox.innerHTML = errors.map(e=>`<div>&bull; ${e}</div>`).join('');
+    errBox.innerHTML = errors.map(e => `<div>&bull; ${e}</div>`).join('');
     errBox.scrollIntoView({behavior:'smooth', block:'center'});
     return;
   }
@@ -1893,14 +1933,15 @@ async function confirmSaveAdminForm(){
       return;
     }
     closeAdminConfirm();
-    showAdminToast('Data operasi berhasil disimpan.');
+    showAdminToast('Data kejadian berhasil disimpan.');
     resetAdminForm();
     await renderAdminOpsTable();
     if (YEARS_AVAILABLE.length === 0 || !YEARS_AVAILABLE.includes(state.year)) {
       const allOps = await Api.operasi({});
-      YEARS_AVAILABLE = Array.from(new Set(allOps.data.map(o=>o.tahun))).sort((a,b)=>a-b);
+      YEARS_AVAILABLE = Array.from(new Set(allOps.data.map(o => o.tahun))).sort((a, b) => a - b);
       buildTahunPanel();
     }
+    if (state.page === 'beranda') render();
   } catch (err) {
     showAdminToast(err.message, true);
     closeAdminConfirm();
@@ -1914,39 +1955,193 @@ function showAdminToast(msg, isError){
   t.textContent = msg;
   t.classList.toggle('error', !!isError);
   t.classList.add('show');
-  setTimeout(()=> t.classList.remove('show'), 3200);
+  setTimeout(() => t.classList.remove('show'), 3200);
 }
 
 async function renderAdminOpsTable(){
   const tbody = $('admin-ops-tbody'); if (!tbody) return;
-  if (!auth.isLoggedIn){ tbody.innerHTML = '<tr><td colspan="6" class="admin-empty-hint">Login sebagai admin untuk melihat data.</td></tr>'; return; }
-  tbody.innerHTML = '<tr><td colspan="6" class="admin-loading">Memuat...</td></tr>';
+  if (!auth.isLoggedIn){ tbody.innerHTML = '<tr><td colspan="7" class="admin-empty-hint">Login sebagai admin untuk melihat data.</td></tr>'; return; }
+  tbody.innerHTML = '<tr><td colspan="7" class="admin-loading">Memuat...</td></tr>';
   try {
     const res = await Api.adminOperasiList();
     const rows = res.data || [];
-    const fmtDate = s => { if (!s) return '-'; const d = new Date(s); return isNaN(d) ? s : d.toLocaleDateString('id-ID',{day:'2-digit',month:'2-digit',year:'numeric'}); };
-    tbody.innerHTML = rows.map(o=>`
+    const fmtDate = s => { if (!s) return '-'; const d = new Date(s); return isNaN(d) ? s : d.toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit', year:'numeric'}); };
+    tbody.innerHTML = rows.map(o => `
       <tr>
         <td>#${o.id_operasi}</td>
         <td>${fmtDate(o.waktu_kejadian)}</td>
         <td>${o.nama_kategori || '-'}</td>
         <td>${o.lokasi_kejadian_deskripsi || '-'}</td>
-        <td><span class="admin-status-pill admin-status-${(o.status_operasi||'').replace(/\s+/g,'-').toLowerCase()}">${o.status_operasi||'-'}</span></td>
+        <td>${o.wilayah_mapped || '-'}</td>
+        <td><span class="admin-status-pill admin-status-${(o.status_operasi || '').replace(/\s+/g, '-').toLowerCase()}">${o.status_operasi || '-'}</span></td>
         <td>
           <button class="admin-table-action" onclick="loadAdminOpToForm(${o.id_operasi})">Edit</button>
           <button class="admin-table-action admin-table-action-danger" onclick="deleteAdminOp(${o.id_operasi})">Hapus</button>
         </td>
-      </tr>`).join('') || '<tr><td colspan="6" class="admin-empty-hint">Belum ada data operasi.</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="7" class="admin-empty-hint">Belum ada data kejadian.</td></tr>';
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="6" class="admin-empty-hint" style="color:#FF9086;">Gagal memuat data: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="admin-empty-hint" style="color:#FF9086;">Gagal memuat data: ${err.message}</td></tr>`;
   }
 }
+
 async function renderAdminInputPage(){
-  if (!$('admin-f-id').value && !editingOpId && korbanRows.length === 0 && instansiRows.length === 0){
+  if (!adminFormInitialized){
     resetAdminForm();
+    adminFormInitialized = true;
+  } else if (adminActiveTab === 'manual') {
+    initAdminMapPicker();
   }
+  updateStatusIndicator();
+  validateKorbanVsPob();
   renderAdminOpsTable();
 }
+
+
+/* ================= ADMIN: UPLOAD EXCEL (BULK IMPORT) =================
+   Alur: pilih/drop file -> "Proses & Validasi" mengirim file APA ADANYA
+   (multipart/form-data, plus "Tahun Laporan" kalau diisi) ke
+   POST /api/admin/operasi/bulk/preview. Parsing format laporan asli
+   (multi-sheet per bulan, baris kategori + baris kejadian bernomor + baris
+   lanjutan teks, konversi koordinat DMS/Radial->desimal, standardisasi
+   waktu, dsb) dilakukan SEPENUHNYA DI SERVER oleh
+   services/excel_import_service.py -- porting langsung dari script ETL yang
+   sudah ditulis & diuji sendiri oleh pengguna. Setiap baris hasil parse
+   sudah divalidasi dengan normalize_payload() yang SAMA dipakai input
+   manual, dan hasilnya (baris + status + pesan error per baris) dikirim
+   balik untuk pratinjau di sini.
+
+   Kenapa TIDAK diparsing di browser (lagi)? Percobaan awal memakai
+   pencocokan nama kolom header sederhana (SheetJS) -- ternyata format
+   sumbernya sama sekali tidak seperti itu (lihat komentar di
+   excel_import_service.py). Melakukan parsing ulang di JavaScript berarti
+   menduplikasi logika regex & konversi koordinat yang cukup rumit, dengan
+   risiko hasil beda halus dari versi Python yang sudah teruji -- jadi
+   logika itu dipakai langsung, bukan ditulis ulang.
+
+   Setelah pratinjau tampil, "Impor ke Database" mengirim ULANG hanya
+   baris yang valid (payload apa adanya, dari hasil preview) ke
+   POST /api/admin/operasi/bulk, yang memvalidasi sekali lagi lalu
+   menyimpan per-baris dalam transaksi (SAVEPOINT per baris). */
+
+let excelSelectedFile = null;
+let excelPreviewRows = [];   // hasil /operasi/bulk/preview: [{row, sheet, source_row, payload, errors}, ...]
+
+function onExcelDragOver(e){ e.preventDefault(); $('excel-dropzone').classList.add('dragover'); }
+function onExcelDragLeave(e){ e.preventDefault(); $('excel-dropzone').classList.remove('dragover'); }
+function onExcelDrop(e){
+  e.preventDefault();
+  $('excel-dropzone').classList.remove('dragover');
+  if (e.dataTransfer.files && e.dataTransfer.files.length) onExcelFileChosen(e.dataTransfer.files);
+}
+function onExcelFileChosen(fileList){
+  if (!fileList || !fileList.length) return;
+  const file = fileList[0];
+  if (!/\.xlsx$/i.test(file.name)){ showAdminToast('Format file tidak didukung. Gunakan file .xlsx (Excel).', true); return; }
+  if (file.size > 20 * 1024 * 1024){ showAdminToast('Ukuran file melebihi 20MB.', true); return; }
+  excelSelectedFile = file;
+  $('excel-file-name').textContent = file.name;
+  $('excel-file-meta').textContent = `${(file.size / 1024).toFixed(0)} KB`;
+  $('excel-file-card').style.display = 'flex';
+  $('excel-dropzone').style.display = 'none';
+  $('excel-process-btn').disabled = false;
+  $('excel-import-btn').style.display = 'none';
+  $('excel-result-area').style.display = 'none';
+}
+function clearExcelFile(){
+  excelSelectedFile = null;
+  excelPreviewRows = [];
+  $('excel-file-input').value = '';
+  $('excel-file-card').style.display = 'none';
+  $('excel-dropzone').style.display = 'flex';
+  $('excel-process-btn').disabled = true;
+  $('excel-import-btn').style.display = 'none';
+  $('excel-result-area').style.display = 'none';
+}
+
+async function onProcessExcelFile(){
+  if (!excelSelectedFile){ showAdminToast('Pilih file terlebih dahulu.', true); return; }
+  const btn = $('excel-process-btn');
+  btn.disabled = true; btn.textContent = 'Memproses di server...';
+  try {
+    const tahun = $('excel-f-tahun').value || null;
+    const res = await Api.adminOperasiBulkPreview(excelSelectedFile, tahun);
+    if (!res.success){
+      showAdminToast(res.message || 'Gagal memproses file.', true);
+      $('excel-result-area').style.display = 'none';
+      return;
+    }
+
+    const d = res.data;
+    excelPreviewRows = d.rows || [];
+
+    $('excel-summary-chips').innerHTML = `
+      <span class="admin-summary-chip excel-summary-chip">Total kejadian terbaca: <b>${d.total}</b></span>
+      <span class="admin-summary-chip excel-summary-chip ok">Valid: <b>${d.valid}</b></span>
+      <span class="admin-summary-chip excel-summary-chip ${d.invalid ? 'err' : ''}">Tidak valid: <b>${d.invalid}</b></span>
+    `;
+
+    const previewRows = excelPreviewRows.slice(0, 25);
+    const cols = ['waktu_kejadian', 'kategori', 'kategori_kejadian', 'jenis_kecelakaan', 'latitude_lkk', 'longitude_lkk', 'wilayah_mapped', 'pob', 's_org', 'md_org', 'h_org'];
+    const theadEl = document.querySelector('#excel-preview-table thead');
+    const tbodyEl = document.querySelector('#excel-preview-table tbody');
+    theadEl.innerHTML = '<tr>' + ['#', 'Sheet', 'Status'].concat(cols).map(c => `<th>${c}</th>`).join('') + '</tr>';
+    tbodyEl.innerHTML = previewRows.map(r => `
+      <tr>
+        <td>${r.row}</td>
+        <td>${r.sheet || '-'} ${r.source_row ? `(baris ${r.source_row})` : ''}</td>
+        <td>${r.errors.length ? '<span class="admin-status-pill" style="color:#FF9086; background:rgba(255,90,74,.14);">Invalid</span>' : '<span class="admin-status-pill admin-status-dilaksanakan">Valid</span>'}</td>
+        ${cols.map(c => `<td>${(r.payload[c] != null && r.payload[c] !== '') ? r.payload[c] : '-'}</td>`).join('')}
+      </tr>`).join('') || '<tr><td colspan="' + (cols.length + 3) + '" class="admin-empty-hint">Tidak ada baris.</td></tr>';
+
+    const invalidResults = excelPreviewRows.filter(r => r.errors.length);
+    if (invalidResults.length){
+      $('excel-error-box').style.display = 'block';
+      $('excel-error-box').innerHTML = '<b>Baris tidak valid (maks. 25 ditampilkan, koreksi manual lewat tab "Input Manual"):</b><br>' +
+        invalidResults.slice(0, 25).map(r => `&bull; ${r.sheet || 'Sheet ?'} baris ${r.source_row || '?'} (kejadian #${r.row}): ${r.errors.join(' ')}`).join('<br>');
+    } else {
+      $('excel-error-box').style.display = 'none';
+    }
+
+    $('excel-result-area').style.display = 'block';
+    $('excel-import-btn').style.display = d.valid ? 'inline-block' : 'none';
+    $('excel-import-result').style.display = 'none';
+  } catch (err) {
+    showAdminToast('Gagal memproses file: ' + err.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Proses & Validasi';
+  }
+}
+
+async function onImportExcelRows(){
+  const validRows = excelPreviewRows.filter(r => !r.errors.length).map(r => r.payload);
+  if (!validRows.length){ showAdminToast('Tidak ada baris valid untuk diimpor.', true); return; }
+  if (!confirm(`Impor ${validRows.length} baris data ke database?`)) return;
+  const btn = $('excel-import-btn');
+  btn.disabled = true; btn.textContent = 'Mengimpor...';
+  try {
+    const res = await Api.adminOperasiBulkImport(validRows);
+    if (!res.success){ showAdminToast(res.message || 'Gagal mengimpor data.', true); return; }
+    const d = res.data;
+    $('excel-import-result').style.display = 'block';
+    $('excel-import-result').innerHTML = `
+      <div class="alert-card" style="border-left-color:var(--safe);">
+        <div>
+          <div class="tag" style="color:var(--safe);">Impor Selesai</div>
+          <div class="txt">${d.berhasil} dari ${d.total} baris berhasil disimpan.${d.gagal ? ` ${d.gagal} baris gagal (lihat detail di konsol browser).` : ''}</div>
+        </div>
+      </div>`;
+    if (d.gagal) console.warn('Baris gagal impor:', d.detail_gagal);
+    showAdminToast(`Impor selesai: ${d.berhasil} berhasil, ${d.gagal} gagal.`);
+    $('excel-import-btn').style.display = 'none';
+    await renderAdminOpsTable();
+    if (state.page === 'beranda') render();
+  } catch (err) {
+    showAdminToast(err.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Impor ke Database';
+  }
+}
+
 
 /* ================= FULLSCREEN MAP (generik: peta / jaraktemu) ================= */
 let fsMapKind = null; // 'peta' atau 'jaraktemu'
