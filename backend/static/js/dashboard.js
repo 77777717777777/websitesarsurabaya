@@ -57,6 +57,7 @@ const ADMIN_KLASIFIKASI_OPTIONS = [
   'Orang Tertimpa/Terjepit/Terjebak',
   'Pesawat Jatuh',
   'Bencana Alam - Gempa',
+  'Lainnya',
 ];
 
 /* Tahun kalender berjalan belum tentu punya data 12 bulan penuh -- tandai dengan
@@ -139,7 +140,7 @@ let WILAYAH_LIST = []; // [{id,label}] -- id = nama wilayah (string)
 let WILAYAH_MAP = {};  // nama_wilayah -> {label}
 let REF = { klasifikasi:[], sumber:[] }; // instansi & peralatan di-drop, tidak ada lagi tabel referensinya
 let YEARS_AVAILABLE = [];
-let auth = { isLoggedIn:false, username:null, nama_lengkap:null };
+let auth = { isLoggedIn:false, id_admin:null, username:null, nama_lengkap:null };
 let charts = {};
 let predMonthKey = null;              // format "2026-09", ganti predMonthIdx lama
 let PREDIKSI_ZONA_CACHE = null;       // { metadata, prediksi: { "2026-09": {...}, ... } }
@@ -255,12 +256,79 @@ async function exportImage(){
   canvas.toBlob(blob => { if (blob) downloadBlob(blob, `dashboard-${state.page}-${Date.now()}.png`); }, 'image/png');
 }
 
+/* Laporan PDF resmi (tabel + ringkasan KPI) -- beda dari "Export as Image" yang cuma
+   screenshot tampilan dashboard. Dipakai untuk lampiran laporan resmi, bukan sekadar
+   dokumentasi visual. Pakai jsPDF + plugin autoTable (CDN). */
+async function exportPDF(){
+  if (typeof window.jspdf === 'undefined'){ showAdminToast('Library PDF gagal dimuat (cek koneksi internet).', true); return; }
+  const { jsPDF } = window.jspdf;
+  const f = getActiveFilters();
+  const [rowsRes, kpiRes] = await Promise.all([ Api.operasi(f), Api.kpi(f) ]);
+  const rows = rowsRes.data || [];
+  const kpi = kpiRes.data;
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.text('Laporan Data Operasi SAR', 40, 40);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text('Kantor SAR Surabaya — Badan Nasional Pencarian dan Pertolongan', 40, 56);
+
+  const filterParts = [
+    `Tahun: ${state.year != null ? formatTahunLabel(state.year) : 'Semua tahun'}`,
+    state.activeMonths.length < 12 ? `${state.activeMonths.length} bulan terpilih` : 'Semua bulan',
+    (state.activeCats.length && state.activeCats.length < CATS.length) ? `${state.activeCats.length} kategori terpilih` : 'Semua kategori',
+    (state.activeWilayah.length && state.activeWilayah.length < WILAYAH_LIST.length) ? `${state.activeWilayah.length} wilayah terpilih` : 'Semua wilayah',
+  ];
+  doc.setFontSize(9);
+  doc.setTextColor(110);
+  doc.text(`Filter aktif: ${filterParts.join('  ·  ')}`, 40, 72);
+  doc.text(`Dibuat: ${new Date().toLocaleString('id-ID')}`, 40, 84);
+
+  doc.setTextColor(20);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text(
+    `Total Kejadian: ${(kpi.total_kejadian||0).toLocaleString('id-ID')}    ·    Korban Ditangani: ${(kpi.korban_ditangani||0).toLocaleString('id-ID')}    ·    Selamat: ${(kpi.selamat||0).toLocaleString('id-ID')}    ·    Meninggal Dunia: ${(kpi.meninggal||0).toLocaleString('id-ID')}    ·    Hilang: ${(kpi.hilang||0).toLocaleString('id-ID')}`,
+    40, 102,
+  );
+
+  const head = [EXPORT_COLUMNS.map(c => c[1])];
+  const body = rows.map(r => EXPORT_COLUMNS.map(c => {
+    const v = r[c[0]];
+    if (v == null) return '';
+    if (c[0] === 'waktu_kejadian') { const d = new Date(v); return isNaN(d) ? String(v) : d.toLocaleString('id-ID'); }
+    return String(v);
+  }));
+
+  doc.autoTable({
+    head, body,
+    startY: 116,
+    styles: { fontSize: 7, cellPadding: 3, overflow: 'linebreak' },
+    headStyles: { fillColor: [230, 89, 10], textColor: 255 },
+    alternateRowStyles: { fillColor: [250, 245, 240] },
+    margin: { left: 40, right: 40, bottom: 36 },
+    didDrawPage: () => {
+      doc.setFontSize(8);
+      doc.setTextColor(140);
+      doc.text(`Halaman ${doc.internal.getCurrentPageInfo().pageNumber} / ${doc.internal.getNumberOfPages()}`, pageWidth - 90, pageHeight - 18);
+    },
+  });
+
+  doc.save(`laporan-operasi-sar-${Date.now()}.pdf`);
+}
+
 async function doExport(fmt){
   $('export-panel').classList.remove('open');
   try {
     if (fmt === 'csv') await exportCSV();
     else if (fmt === 'xlsx') await exportXLSX();
     else if (fmt === 'image') await exportImage();
+    else if (fmt === 'pdf') await exportPDF();
   } catch (err) {
     showAdminToast('Gagal export: ' + err.message, true);
   }
@@ -290,7 +358,7 @@ async function submitLogin(){
       $('login-error').style.display = 'block';
       return;
     }
-    auth = { isLoggedIn:true, username: res.data.username, nama_lengkap: res.data.nama_lengkap };
+    auth = { isLoggedIn:true, id_admin: res.data.id_admin, username: res.data.username, nama_lengkap: res.data.nama_lengkap };
     $('login-username').value = ''; $('login-password').value = '';
     closeLoginModal();
     renderAuthUI();
@@ -313,7 +381,7 @@ document.addEventListener('click', (e)=>{
 async function doLogout(){
   const p = $('admin-menu-panel'); if (p) p.classList.remove('open');
   try { await Api.adminLogout(); } catch(e){ /* ignore */ }
-  auth = { isLoggedIn:false, username:null, nama_lengkap:null };
+  auth = { isLoggedIn:false, id_admin:null, username:null, nama_lengkap:null };
   if (state.page === 'admin-input') goPage('beranda');
   renderAuthUI();
 }
@@ -333,7 +401,7 @@ async function checkAuthOnLoad(){
   try {
     const res = await Api.adminMe();
     if (res.success){
-      auth = { isLoggedIn:true, username: res.data.username, nama_lengkap: res.data.nama_lengkap };
+      auth = { isLoggedIn:true, id_admin: res.data.id_admin, username: res.data.username, nama_lengkap: res.data.nama_lengkap };
     }
   } catch (e) { /* not logged in / backend not reachable yet */ }
   renderAuthUI();
@@ -922,10 +990,20 @@ function renderMapBufferLeaflet(containerId, operasiRows){
   legend.innerHTML = `<div class="row"><span class="sw" style="background:var(--o-90)"></span>Unit/Pos SAR</div><div class="row" style="color:var(--text-faint);">Garis = kejadian ditautkan ke pos sesuai data wilayah, warna = kategori kejadian</div>`;
 }
 
-/* Peta Jarak Temu: kolom jarak_dari_lkk_km TIDAK ADA di kejadian_sar (kolom 'jarak'
-   sengaja diabaikan sesuai keputusan sebelumnya). Garis LKK -> lokasi ditemukan tetap
-   digambar dari koordinat yang tersedia, tapi label jarak dihilangkan karena nilainya
-   tidak ada di skema saat ini. */
+/* Jarak great-circle sederhana (km) antara 2 koordinat -- dipakai buat label jarak di
+   Peta Jarak Temu. Kolom jarak_dari_lkk_km TIDAK ADA di kejadian_sar (kolom 'jarak'
+   sengaja diabaikan sesuai keputusan sebelumnya), tapi dihitung langsung dari
+   latitude/longitude yang memang tersimpan -- tidak butuh kolom tambahan. */
+function haversineKm(lat1, lon1, lat2, lon2){
+  const R = 6371;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+/* Peta Jarak Temu: LKK -> lokasi ditemukan, dengan jarak dihitung langsung dari
+   koordinat (lihat haversineKm di atas). */
 function renderMapJarakTemuLeaflet(containerId, operasiRows){
   const entry = getOrCreateLeafletMap(containerId);
   entry.map.invalidateSize();
@@ -948,25 +1026,41 @@ function renderMapJarakTemuLeaflet(containerId, operasiRows){
     return;
   }
 
+  // Banyak pasangan LKK <-> Lokasi Ditemukan jaraknya cuma puluhan/ratusan meter
+  // (korban ditemukan persis di sekitar lokasi kejadian) -- di skala peta seluruh
+  // Jatim, garis sependek itu nyaris tak kelihatan dan titik hijau (digambar
+  // belakangan) menutupi total titik merah di bawahnya, jadi kelihatan cuma satu
+  // titik tanpa garis. LKK digambar lebih besar sebagai "cincin" di bawah supaya
+  // pasangan yang berdekatan tetap kelihatan dua titik (bukan cuma satu warna).
   const linesLayer = L.layerGroup().addTo(entry.incidentLayer);
   entry.jtLinesLayer = linesLayer;
   rows.forEach(o=>{
     const from = [o.lokasi_kejadian_lat, o.lokasi_kejadian_lon];
     const to = [o.lokasi_ditemukan_lat, o.lokasi_ditemukan_lon];
     const label = o.lokasi_kejadian_deskripsi || o.wilayah_mapped || 'Operasi #'+o.id_operasi;
+    const jarakKm = haversineKm(o.lokasi_kejadian_lat, o.lokasi_kejadian_lon, o.lokasi_ditemukan_lat, o.lokasi_ditemukan_lon);
+    const jarakTxt = jarakKm < 1 ? Math.round(jarakKm*1000)+' m' : jarakKm.toFixed(1)+' km';
+    const tooltipHtml = `${label}<br><span style="color:#C9B8A8;">Jarak LKK &rarr; ditemukan: ${jarakTxt}</span>`;
     L.polyline([from, to], { color:'#FFC98A', weight:1.4, opacity:.55, dashArray:'5,4' })
-      .bindTooltip(`${label}`, { direction:'top', sticky:false, className:'sar-pos-tooltip' })
+      .bindTooltip(tooltipHtml, { direction:'top', sticky:false, className:'sar-pos-tooltip' })
       .addTo(linesLayer);
-    L.circleMarker(from, { radius:5, color:'#0A0605', weight:1, fillColor:'#FF5A4A', fillOpacity:.9 }).addTo(linesLayer);
-    L.circleMarker(to, { radius:5, color:'#0A0605', weight:1, fillColor:'#5FBE7A', fillOpacity:.9 }).addTo(linesLayer);
+    // Tooltip DIPASANG LANGSUNG DI TITIKNYA (bukan cuma di garis) -- garis
+    // dashed setebal ~1.4px susah banget di-hover persis, sementara titik
+    // (radius 7 & 3.5) jauh lebih besar & jadi target hover yang wajar.
+    // Sebelumnya tooltip cuma ada di garis, makanya kerasa "susah" dipencet.
+    L.circleMarker(from, { radius:7, color:'#0A0605', weight:1, fillColor:'#FF5A4A', fillOpacity:.85 })
+      .bindTooltip(tooltipHtml, { direction:'top', className:'sar-pos-tooltip' })
+      .addTo(linesLayer);
+    L.circleMarker(to, { radius:3.5, color:'#0A0605', weight:1, fillColor:'#5FBE7A', fillOpacity:1 })
+      .bindTooltip(tooltipHtml, { direction:'top', className:'sar-pos-tooltip' })
+      .addTo(linesLayer);
   });
 
   let legend = wrap.querySelector('.map-legend');
   if (!legend){ legend = document.createElement('div'); legend.className='map-legend'; wrap.appendChild(legend); }
   legend.innerHTML = `
     <div class="row"><span class="sw" style="background:#FF5A4A"></span>LKK / Lokasi Kejadian</div>
-    <div class="row"><span class="sw" style="background:#5FBE7A"></span>Lokasi Ditemukan</div>
-    <div class="row" style="color:var(--text-faint);">jarak tidak tersedia di data saat ini</div>`;
+    <div class="row"><span class="sw" style="background:#5FBE7A"></span>Lokasi Ditemukan</div>`;
   let note = wrap.querySelector('.map-note');
   if (!note){ note = document.createElement('div'); note.className='map-note'; wrap.appendChild(note); }
   note.textContent = `${rows.length} pasangan titik`;
@@ -1404,20 +1498,20 @@ function generateRekomendasiZona(z){
   const domLabel = z.dominanCatId != null && CATMAP[z.dominanCatId] ? CATMAP[z.dominanCatId].label : null;
   let base;
   if (!domLabel) {
-    base = `Pantau perkembangan kejadian di wilayah ini secara berkala.`;
+    base = `Jenis kejadian di wilayah ini bervariasi, belum ada kategori yang menonjol.`;
   } else if (domLabel.includes('Kapal')) {
-    base = `Perkuat patroli laut & pelatihan potensi SAR di jalur pelayaran ${z.kab}.`;
+    base = `Kejadian terbanyak berupa kecelakaan kapal/laut. Perlu patroli laut dan kesiapan tim SAR di jalur pelayaran ${z.kab}.`;
   } else if (domLabel.includes('Pesawat')) {
-    base = `Koordinasikan kesiapsiagaan bandara & jalur penerbangan setempat.`;
+    base = `Kejadian terbanyak berupa kecelakaan pesawat/penerbangan. Perlu koordinasi kesiapsiagaan dengan pihak bandara setempat.`;
   } else if (domLabel.includes('Bencana')) {
-    base = `Tingkatkan kesiapsiagaan bencana & jalur evakuasi di wilayah ${z.kab}.`;
+    base = `Kejadian terbanyak berupa bencana alam. Perlu jalur evakuasi dan kesiapsiagaan bencana di wilayah ${z.kab}.`;
   } else if (domLabel.includes('Membahayakan')) {
-    base = `Sinergi dengan Dishub & kepolisian untuk penanganan kondisi membahayakan manusia.`;
+    base = `Kejadian terbanyak berupa kondisi yang membahayakan keselamatan warga. Perlu koordinasi dengan Dinas Perhubungan dan kepolisian setempat.`;
   } else {
-    base = `Perkuat koordinasi penanganan khusus di wilayah ${z.wilayah}.`;
+    base = `Kejadian terbanyak berupa ${domLabel.toLowerCase()}. Perlu koordinasi penanganan untuk jenis kejadian ini di wilayah ${z.wilayah}.`;
   }
-  const urgency = z.kejadian >= 20 ? ' Prioritas tinggi — pertimbangkan penambahan unit siaga.'
-    : z.kejadian >= 10 ? ' Prioritas sedang — evaluasi kesiapan personel & alat.'
+  const urgency = z.kejadian >= 20 ? ' Jumlah kejadian tergolong tinggi, sehingga perlu dipertimbangkan untuk penambahan unit siaga.'
+    : z.kejadian >= 10 ? ' Jumlah kejadian tergolong sedang, sehingga perlu memastikan personel dan peralatan tetap siap.'
     : '';
   return base + urgency;
 }
@@ -1439,7 +1533,7 @@ async function renderZona(){
     return `<div class="rank-item">
       <div class="no">${String(i+1).padStart(2,'0')}</div>
       <div class="info"><div class="kab">${z.kab}</div><div class="pos">${z.wilayah}</div></div>
-      <div class="metric"><span class="n">${z.kejadian}</span><div class="bar-bg"><div class="bar-fg" style="width:${Math.round((z.kejadian/maxK)*100)}%"></div></div></div>
+      <div class="metric"><span class="n">${z.kejadian}</span><span class="unit">kejadian</span><div class="bar-bg"><div class="bar-fg" style="width:${Math.round((z.kejadian/maxK)*100)}%"></div></div></div>
       <div class="rek">${generateRekomendasiZona(z)}</div>
     </div>`;
   }).join('');
@@ -1564,7 +1658,7 @@ async function renderPrediksi(){
       <div class="rank-item">
         <div class="no">${String(i+1).padStart(2,'0')}</div>
         <div class="info"><div class="kab">${kab}</div><div class="pos">Potensi ${d.level}</div></div>
-        <div class="metric"><span class="n">${d.skor.toFixed(2)}</span><div class="bar-bg"><div class="bar-fg" style="width:${Math.round((d.skor/maxSkor)*100)}%; background:${WARNA_LEVEL[d.level]}"></div></div></div>
+        <div class="metric"><span class="n">${d.skor.toFixed(2)}</span><span class="unit">skor kerawanan</span><div class="bar-bg"><div class="bar-fg" style="width:${Math.round((d.skor/maxSkor)*100)}%; background:${WARNA_LEVEL[d.level]}"></div></div></div>
       </div>`).join('') : `<div class="admin-empty-hint">Data prediksi belum tersedia untuk periode ini.</div>`;
   }
   }
@@ -1589,12 +1683,13 @@ let adminFormInitialized = false;
 
 function switchAdminTab(tab){
   adminActiveTab = tab;
-  ['manual', 'excel', 'data'].forEach(t => {
+  ['manual', 'excel', 'data', 'admins'].forEach(t => {
     $(`admin-tab-btn-${t}`).classList.toggle('active', tab === t);
     $(`admin-tab-btn-${t}`).setAttribute('aria-selected', tab === t);
     $(`admin-tab-${t}`).classList.toggle('active', tab === t);
   });
   if (tab === 'manual') initAdminMapPicker();
+  else if (tab === 'admins') renderAdminAccountsTab();
 }
 
 /* Kategori & Klasifikasi: dropdown (bukan lagi text+datalist), diisi dari
@@ -1619,6 +1714,70 @@ function buildAdminSelectOptions(){
   }
   if (dlSumber) dlSumber.innerHTML = (REF.sumber || []).map(s => `<option value="${s.nilai}">`).join('');
   buildAdminWilayahCheckboxes();
+}
+
+/* Klasifikasi "Lainnya": munculkan input teks bebas saat dipilih, supaya
+   kejadian yang klasifikasinya belum ada di daftar standar (mis. "Tsunami")
+   tetap bisa dicatat tanpa mengubah daftar dropdown. Nilai akhir yang
+   disimpan ke kolom kategori_kejadian yang SAMA (bukan kolom baru) berformat
+   "Lainnya (<isian>)" -- lihat getKlasifikasiValue()/parseKlasifikasiField(). */
+function onAdminKlasifikasiChange(){
+  const isLainnya = $('admin-f-klasifikasi').value === 'Lainnya';
+  $('admin-f-klasifikasi-lainnya').style.display = isLainnya ? '' : 'none';
+  if (!isLainnya) $('admin-f-klasifikasi-lainnya').value = '';
+}
+function getKlasifikasiValue(){
+  const sel = ($('admin-f-klasifikasi').value || '').trim();
+  if (sel === 'Lainnya'){
+    const custom = ($('admin-f-klasifikasi-lainnya').value || '').trim();
+    return custom ? `Lainnya (${custom})` : 'Lainnya';
+  }
+  return sel || null;
+}
+/* Kebalikan dari getKlasifikasiValue() -- dipanggil saat memuat data lama ke
+   form edit, supaya nilai "Lainnya (Tsunami)" hasil simpanan sebelumnya
+   kembali terpecah jadi pilihan "Lainnya" + isian teks "Tsunami". */
+function applyKlasifikasiField(rawValue){
+  const val = rawValue || '';
+  const m = val.match(/^Lainnya\s*\(([\s\S]*)\)$/i);
+  if (m){
+    setAdminSelectValue('admin-f-klasifikasi', 'Lainnya');
+    $('admin-f-klasifikasi-lainnya').value = m[1].trim();
+  } else {
+    setAdminSelectValue('admin-f-klasifikasi', val);
+    $('admin-f-klasifikasi-lainnya').value = '';
+  }
+  onAdminKlasifikasiChange();
+}
+
+/* Jarak (Km / Nm): dua kolom angka terpisah di form, digabung jadi satu teks
+   ("44 Km" / "44 Km / 23.7 Nm") saat disimpan ke kolom `jarak` -- kolom ini
+   sudah ada & sudah dipakai bulk-import Excel dengan format yang sama (lihat
+   combine_val_unit() di services/excel_import_service.py), jadi data manual
+   & data impor tetap konsisten satu format. */
+function getJarakValue(){
+  const km = ($('admin-f-jarak-km').value || '').trim();
+  const nm = ($('admin-f-jarak-nm').value || '').trim();
+  const parts = [];
+  if (km) parts.push(`${km} Km`);
+  if (nm) parts.push(`${nm} Nm`);
+  return parts.length ? parts.join(' / ') : null;
+}
+/* Kebalikan dari getJarakValue() -- parsing lunak karena data historis
+   formatnya tidak seragam (mis. "44 Km", "4.97 Nm.", "148 Km.", atau "- -"
+   untuk baris tanpa data). Angka yang tidak cocok pola manapun cukup
+   ditinggalkan kosong di form, admin bisa isi ulang manual. */
+function applyJarakField(rawValue){
+  $('admin-f-jarak-km').value = '';
+  $('admin-f-jarak-nm').value = '';
+  if (!rawValue) return;
+  String(rawValue).split('/').forEach(part => {
+    const m = part.trim().match(/([\d.]+)\s*(km|nm)/i);
+    if (!m) return;
+    const num = m[1], unit = m[2].toLowerCase();
+    if (unit === 'km') $('admin-f-jarak-km').value = num;
+    else if (unit === 'nm') $('admin-f-jarak-nm').value = num;
+  });
 }
 
 /* Set value ke <select>, dan kalau value-nya tidak ada di antara <option>
@@ -1745,6 +1904,8 @@ function resetAdminForm(){
   $('admin-f-waktu-kejadian').value = '';
   $('admin-f-kategori').value = '';
   $('admin-f-klasifikasi').value = '';
+  $('admin-f-klasifikasi-lainnya').value = '';
+  onAdminKlasifikasiChange();
   $('admin-f-jenis').value = '';
   $('admin-f-lkk').value = '';
   $('admin-f-lat').value = '';
@@ -1762,6 +1923,8 @@ function resetAdminForm(){
   $('admin-f-waktu-selesai').value = '';
   $('admin-f-waktu-siap').value = '';
   $('admin-f-waktu-tempuh').value = '';
+  $('admin-f-jarak-km').value = '';
+  $('admin-f-jarak-nm').value = '';
   $('admin-f-biaya').value = '';
   $('admin-f-lokasi-ditemukan').value = '';
   $('admin-f-lat-ditemukan').value = '';
@@ -1788,7 +1951,7 @@ async function loadAdminOpToForm(id){
   $('admin-f-id').value = op.id_operasi;
   $('admin-f-waktu-kejadian').value = toLocalInput(op.waktu_kejadian);
   setAdminSelectValue('admin-f-kategori', op.kategori || '');
-  setAdminSelectValue('admin-f-klasifikasi', op.kategori_kejadian || '');
+  applyKlasifikasiField(op.kategori_kejadian || '');
   $('admin-f-jenis').value = op.jenis_kecelakaan || '';
   $('admin-f-lkk').value = op.posisi_koordinat_area || '';
   $('admin-f-lat').value = op.latitude_lkk != null ? op.latitude_lkk : '';
@@ -1805,6 +1968,7 @@ async function loadAdminOpToForm(id){
   $('admin-f-waktu-selesai').value = toLocalInput(op.waktu_selesai);
   $('admin-f-waktu-siap').value = op.waktu_siap != null ? op.waktu_siap : '';
   $('admin-f-waktu-tempuh').value = op.waktu_tempuh_menit != null ? op.waktu_tempuh_menit : '';
+  applyJarakField(op.jarak || '');
   $('admin-f-biaya').value = op.biaya_rp || '';
   $('admin-f-lokasi-ditemukan').value = op.lokasi_ditemukan || '';
   $('admin-f-lat-ditemukan').value = op.latitude_ditemukan != null ? op.latitude_ditemukan : '';
@@ -1850,6 +2014,10 @@ function validateAdminForm(){
 
   if (!getSelectedAdminWilayah().length) errors.push('Wilayah Terdampak wajib diisi (pilih minimal satu, atau isi kolom "wilayah lainnya").');
 
+  if (val('admin-f-klasifikasi') === 'Lainnya' && !val('admin-f-klasifikasi-lainnya').trim()) {
+    errors.push('Isi kolom klasifikasi kustom untuk "Lainnya", atau pilih klasifikasi lain.');
+  }
+
   const pobRaw = val('admin-f-pob');
   const pob = pobRaw === '' ? null : parseInt(pobRaw, 10);
   const s = parseInt(val('admin-f-s') || '0', 10);
@@ -1858,6 +2026,7 @@ function validateAdminForm(){
   if (pob != null && (s + md + h) > pob) errors.push('Jumlah Selamat + Meninggal Dunia + Hilang tidak boleh melebihi POB.');
 
   const waktuBerangkat = val('admin-f-waktu-berangkat');
+  const waktuTiba = val('admin-f-waktu-tiba');
   const waktuSelesai = val('admin-f-waktu-selesai');
   if (waktuSelesai && !waktuBerangkat) errors.push('Waktu Berangkat wajib diisi jika Waktu Selesai sudah diisi.');
   if (waktuBerangkat && waktuSelesai && new Date(waktuSelesai) < new Date(waktuBerangkat)) errors.push('Waktu Selesai tidak boleh lebih awal dari Waktu Berangkat.');
@@ -1866,6 +2035,21 @@ function validateAdminForm(){
   if (kejadianDT && waktuSelesai && new Date(waktuSelesai) < kejadianDT) errors.push('Waktu Selesai tidak boleh lebih awal dari Waktu Kejadian.');
   const tglLapor = val('admin-f-tgl-lapor');
   if (kejadianDT && tglLapor && new Date(tglLapor) < kejadianDT) errors.push('Waktu Lapor tidak boleh lebih awal dari Waktu Kejadian.');
+
+  if (!tglLapor) errors.push('Waktu Laporan Diterima wajib diisi.');
+
+  /* Status Operasi otomatis "Dilaksanakan" begitu Waktu Berangkat ATAU Waktu
+     Tiba diisi (logika sama dengan updateStatusIndicator() & backend
+     normalize_payload()) -- kalau sudah berstatus Dilaksanakan, Waktu Siap &
+     Waktu Tempuh wajib diisi juga. Kalau statusnya masih Tidak Dilaksanakan
+     (dua-duanya kosong), field ini boleh tetap kosong -- match ~3 baris
+     historis "Tidak Dilaksanakan" yang memang tidak punya nilai ini sama
+     sekali (lihat catatan di admin_routes.py normalize_payload()). */
+  const dilaksanakan = !!(waktuBerangkat || waktuTiba);
+  if (dilaksanakan){
+    if (!val('admin-f-waktu-siap')) errors.push('Waktu Siap wajib diisi karena operasi ini akan tercatat berstatus Dilaksanakan.');
+    if (!val('admin-f-waktu-tempuh')) errors.push('Waktu Tempuh wajib diisi karena operasi ini akan tercatat berstatus Dilaksanakan.');
+  }
 
   return errors;
 }
@@ -1879,7 +2063,7 @@ function collectAdminFormPayload(){
   return {
     waktu_kejadian: dt('admin-f-waktu-kejadian'),
     kategori: val('admin-f-kategori').trim() || null,
-    kategori_kejadian: val('admin-f-klasifikasi').trim() || null,
+    kategori_kejadian: getKlasifikasiValue(),
     jenis_kecelakaan: val('admin-f-jenis').trim() || null,
     posisi_koordinat_area: val('admin-f-lkk').trim() || null,
     latitude_lkk: num('admin-f-lat'),
@@ -1892,6 +2076,7 @@ function collectAdminFormPayload(){
     waktu_selesai: dt('admin-f-waktu-selesai'),
     waktu_siap: num('admin-f-waktu-siap'),
     waktu_tempuh_menit: num('admin-f-waktu-tempuh'),
+    jarak: getJarakValue(),
     pob: intVal('admin-f-pob'),
     s_org: intVal('admin-f-s') || 0,
     md_org: intVal('admin-f-md') || 0,
@@ -1958,13 +2143,32 @@ function showAdminToast(msg, isError){
   setTimeout(() => t.classList.remove('show'), 3200);
 }
 
+/* Pencarian & pagination tabel "Data Tersimpan" -- sebelumnya selalu ambil 1000
+   baris sekaligus tanpa cara menyaring, makin lama makin berat & susah cari satu
+   kejadian spesifik. Sekarang query ke server per-halaman + filter teks bebas
+   (?q=) yang dicocokkan ke kategori/klasifikasi/wilayah/lokasi/ID di backend. */
+let adminOpsQuery = '';
+let adminOpsPage = 1;
+const ADMIN_OPS_LIMIT = 50;
+
+function onAdminOpsSearchInput(el){
+  adminOpsQuery = el.value;
+  adminOpsPage = 1;
+  clearTimeout(window._adminOpsSearchDebounce);
+  window._adminOpsSearchDebounce = setTimeout(renderAdminOpsTable, 300);
+}
+function goAdminOpsPage(delta){
+  adminOpsPage = Math.max(1, adminOpsPage + delta);
+  renderAdminOpsTable();
+}
+
 async function renderAdminOpsTable(){
   const tbody = $('admin-ops-tbody'); if (!tbody) return;
   if (!auth.isLoggedIn){ tbody.innerHTML = '<tr><td colspan="7" class="admin-empty-hint">Login sebagai admin untuk melihat data.</td></tr>'; return; }
   tbody.innerHTML = '<tr><td colspan="7" class="admin-loading">Memuat...</td></tr>';
   try {
-    const res = await Api.adminOperasiList();
-    const rows = res.data || [];
+    const res = await Api.adminOperasiList({ q: adminOpsQuery, page: adminOpsPage, limit: ADMIN_OPS_LIMIT });
+    const { rows = [], total = 0, page = 1, total_halaman = 1 } = res.data || {};
     const fmtDate = s => { if (!s) return '-'; const d = new Date(s); return isNaN(d) ? s : d.toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit', year:'numeric'}); };
     tbody.innerHTML = rows.map(o => `
       <tr>
@@ -1978,9 +2182,82 @@ async function renderAdminOpsTable(){
           <button class="admin-table-action" onclick="loadAdminOpToForm(${o.id_operasi})">Edit</button>
           <button class="admin-table-action admin-table-action-danger" onclick="deleteAdminOp(${o.id_operasi})">Hapus</button>
         </td>
-      </tr>`).join('') || '<tr><td colspan="7" class="admin-empty-hint">Belum ada data kejadian.</td></tr>';
+      </tr>`).join('') || `<tr><td colspan="7" class="admin-empty-hint">${adminOpsQuery ? 'Tidak ada kejadian yang cocok dengan pencarian.' : 'Belum ada data kejadian.'}</td></tr>`;
+
+    const pagEl = $('admin-ops-pagination');
+    if (pagEl){
+      const start = total ? (page - 1) * ADMIN_OPS_LIMIT + 1 : 0;
+      const end = Math.min(page * ADMIN_OPS_LIMIT, total);
+      pagEl.innerHTML = `
+        <span class="admin-empty-hint" style="padding:0;">Menampilkan ${start}-${end} dari ${total} kejadian</span>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <button class="admin-btn-small" ${page<=1?'disabled':''} onclick="goAdminOpsPage(-1)">&larr; Sebelumnya</button>
+          <span class="admin-empty-hint" style="padding:0;">Halaman ${page} / ${total_halaman}</span>
+          <button class="admin-btn-small" ${page>=total_halaman?'disabled':''} onclick="goAdminOpsPage(1)">Berikutnya &rarr;</button>
+        </div>`;
+    }
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" class="admin-empty-hint" style="color:#FF9086;">Gagal memuat data: ${err.message}</td></tr>`;
+  }
+}
+
+/* ================= ADMIN: KELOLA AKUN ADMIN ================= */
+async function renderAdminAccountsTab(){
+  const tbody = $('admin-accounts-tbody'); if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" class="admin-loading">Memuat...</td></tr>';
+  try {
+    const res = await Api.adminList();
+    const rows = res.data || [];
+    const fmtDate = s => { const d = new Date(s); return isNaN(d) ? '-' : d.toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit', year:'numeric'}); };
+    tbody.innerHTML = rows.map(a => `
+      <tr>
+        <td>${a.username}</td>
+        <td>${a.nama_lengkap || '-'}</td>
+        <td><span class="admin-status-pill ${a.status === 'aktif' ? 'admin-status-dilaksanakan' : 'admin-status-tidak-dilaksanakan'}">${a.status}</span></td>
+        <td>${fmtDate(a.created_at)}</td>
+        <td>
+          ${a.id_admin === auth.id_admin ? '' : `<button class="admin-table-action ${a.status === 'aktif' ? 'admin-table-action-danger' : ''}" onclick="onToggleAdminStatus(${a.id_admin}, '${a.status === 'aktif' ? 'nonaktif' : 'aktif'}')">${a.status === 'aktif' ? 'Nonaktifkan' : 'Aktifkan'}</button>`}
+        </td>
+      </tr>`).join('') || '<tr><td colspan="5" class="admin-empty-hint">Belum ada akun admin.</td></tr>';
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="admin-empty-hint" style="color:#FF9086;">Gagal memuat data: ${err.message}</td></tr>`;
+  }
+}
+
+async function onToggleAdminStatus(id, newStatus){
+  const label = newStatus === 'aktif' ? 'mengaktifkan' : 'menonaktifkan';
+  if (!confirm(`Yakin ingin ${label} akun admin ini?`)) return;
+  try {
+    const res = await Api.adminSetStatus(id, newStatus);
+    if (!res.success){ showAdminToast(res.message || 'Gagal memperbarui status.', true); return; }
+    showAdminToast('Status akun berhasil diperbarui.');
+    renderAdminAccountsTab();
+  } catch (err) {
+    showAdminToast(err.message, true);
+  }
+}
+
+async function onCreateAdmin(){
+  const username = $('newadmin-f-username').value.trim();
+  const nama_lengkap = $('newadmin-f-nama').value.trim();
+  const password = $('newadmin-f-password').value;
+  const errBox = $('newadmin-form-error');
+  errBox.style.display = 'none';
+  try {
+    const res = await Api.adminCreate({ username, nama_lengkap, password });
+    if (!res.success){
+      errBox.textContent = res.message || 'Gagal membuat akun admin.';
+      errBox.style.display = 'block';
+      return;
+    }
+    showAdminToast(`Akun admin "${username}" berhasil dibuat.`);
+    $('newadmin-f-username').value = '';
+    $('newadmin-f-nama').value = '';
+    $('newadmin-f-password').value = '';
+    renderAdminAccountsTab();
+  } catch (err) {
+    errBox.textContent = err.message;
+    errBox.style.display = 'block';
   }
 }
 

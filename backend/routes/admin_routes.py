@@ -1,10 +1,14 @@
 
+import time
+from collections import defaultdict, deque
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify, session
+from werkzeug.security import generate_password_hash
 from auth import verify_admin_login, login_required
 from db import get_connection, query_all, query_one
 from services.excel_import_service import parse_workbook
+from routes.public_routes import build_filters
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
@@ -36,6 +40,37 @@ def fail(message, status=400):
 # ============================================================
 # AUTH
 # ============================================================
+# Rate limiting percobaan login (anti brute-force). Disimpan in-memory (dict
+# per-proses), BUKAN di database/Redis -- cukup untuk deployment 1 proses
+# seperti `python app.py` / 1 worker gunicorn yang dipakai project ini
+# sekarang. Kalau nanti dijalankan dengan >1 worker/proses, counter ini tidak
+# akan sinkron antar proses (masing-masing punya limit sendiri-sendiri) --
+# butuh Redis/DB kalau mau scale ke situasi itu.
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_SECONDS = 15 * 60  # 15 menit
+_login_attempts = defaultdict(deque)  # key -> deque[timestamp percobaan gagal]
+
+
+def _login_rate_limit_key(username):
+    # Kombinasi IP + username: brute-force ke SATU akun (username tetap,
+    # password diacak) tetap kena limit walau dari banyak IP berbeda tidak
+    # tercakup di sini -- tapi kombinasi ini sudah cukup untuk kasus umum
+    # (satu penyerang dari satu sumber mencoba banyak password).
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr) or 'unknown'
+    return f"{ip.split(',')[0].strip()}:{username.lower()}"
+
+
+def _login_is_locked(key):
+    now = time.time()
+    attempts = _login_attempts[key]
+    while attempts and now - attempts[0] > LOGIN_LOCKOUT_SECONDS:
+        attempts.popleft()
+    return len(attempts) >= LOGIN_MAX_ATTEMPTS
+
+
+def _login_record_failure(key):
+    _login_attempts[key].append(time.time())
+
 
 @admin_bp.route('/login', methods=['POST'])
 def login():
@@ -44,9 +79,21 @@ def login():
     password = body.get('password') or ''
     if not username or not password:
         return fail('Username dan password wajib diisi.', 400)
+
+    rl_key = _login_rate_limit_key(username)
+    if _login_is_locked(rl_key):
+        return fail(
+            f'Terlalu banyak percobaan login gagal untuk akun ini. '
+            f'Coba lagi dalam {LOGIN_LOCKOUT_SECONDS // 60} menit.',
+            429,
+        )
+
     admin = verify_admin_login(username, password)
     if not admin:
+        _login_record_failure(rl_key)
         return fail('Username atau password salah.', 401)
+
+    _login_attempts.pop(rl_key, None)  # login berhasil -> reset hitungan gagal
     session['id_admin'] = admin['id_admin']
     session['username'] = admin['username']
     return ok({
@@ -73,6 +120,112 @@ def me():
         session.clear()
         return fail('Sesi tidak valid.', 401)
     return ok(admin)
+
+
+# ============================================================
+# KELOLA AKUN ADMIN
+# ============================================================
+# Sengaja tidak ada endpoint hapus akun -- nonaktifkan (status='nonaktif') supaya
+# histori tetap konsisten, konsisten dengan pola "no delete" yang sama dipakai di
+# admin table (kolom status sudah ada dari schema.sql awal, cuma belum ada UI-nya).
+
+@admin_bp.route('/admins', methods=['GET'])
+@login_required
+def admin_list():
+    rows = query_all(
+        """SELECT id_admin, username, nama_lengkap, status, created_at
+           FROM admin ORDER BY created_at ASC"""
+    )
+    return ok(rows)
+
+
+@admin_bp.route('/admins', methods=['POST'])
+@login_required
+def admin_create():
+    body = request.get_json(silent=True) or {}
+    username = (body.get('username') or '').strip()
+    password = body.get('password') or ''
+    nama_lengkap = (body.get('nama_lengkap') or '').strip()
+
+    errors = []
+    if not username:
+        errors.append('Username wajib diisi.')
+    elif len(username) < 3:
+        errors.append('Username minimal 3 karakter.')
+    if not nama_lengkap:
+        errors.append('Nama lengkap wajib diisi.')
+    if not password:
+        errors.append('Password wajib diisi.')
+    elif len(password) < 8:
+        errors.append('Password minimal 8 karakter.')
+    if errors:
+        return fail(' '.join(errors), 400)
+
+    existing = query_one("SELECT id_admin FROM admin WHERE username = %s", (username,))
+    if existing:
+        return fail('Username sudah dipakai, pilih username lain.', 400)
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO admin (username, password, nama_lengkap, status) VALUES (%s, %s, %s, 'aktif')",
+                (username, generate_password_hash(password), nama_lengkap),
+            )
+            new_id = cur.lastrowid
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return fail(f'Gagal membuat akun admin: {e}', 500)
+    finally:
+        conn.close()
+
+    return ok({'id_admin': new_id, 'username': username, 'nama_lengkap': nama_lengkap}, 'Akun admin baru berhasil dibuat.')
+
+
+@admin_bp.route('/admins/<int:id_admin>/status', methods=['PUT'])
+@login_required
+def admin_set_status(id_admin):
+    body = request.get_json(silent=True) or {}
+    status = body.get('status')
+    if status not in ('aktif', 'nonaktif'):
+        return fail('Status tidak valid.', 400)
+    if id_admin == session.get('id_admin') and status == 'nonaktif':
+        return fail('Tidak bisa menonaktifkan akun yang sedang dipakai untuk login saat ini.', 400)
+
+    existing = query_one("SELECT id_admin FROM admin WHERE id_admin = %s", (id_admin,))
+    if not existing:
+        return fail('Akun admin tidak ditemukan.', 404)
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE admin SET status = %s WHERE id_admin = %s", (status, id_admin))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return fail(f'Gagal memperbarui status: {e}', 500)
+    finally:
+        conn.close()
+    return ok(None, 'Status akun admin berhasil diperbarui.')
+
+
+@admin_bp.route('/sumber-berita')
+@login_required
+def sumber_berita():
+    """Dipindah dari public_routes.py -- kolom `sumber_berita` berisi PII (nama & no.
+    HP pribadi pelapor), jadi hanya boleh diakses admin yang sudah login. Lihat catatan
+    di public_routes.py."""
+    where_sql, params = build_filters()
+    rows = query_all(
+        f"""SELECT sumber_berita AS nama_sumber, COUNT(*) AS jumlah
+            FROM kejadian_sar
+            WHERE 1=1 {where_sql}
+            GROUP BY sumber_berita
+            ORDER BY jumlah DESC""",
+        params,
+    )
+    return ok(rows)
 
 
 # ============================================================
@@ -222,8 +375,18 @@ def normalize_payload(body):
         else:
             v[key] = None
 
-    v['waktu_siap'] = as_float('waktu_siap', 0, None, 'Waktu Siap')
-    v['waktu_tempuh_menit'] = as_float('waktu_tempuh_menit', 0, None, 'Waktu Tempuh')
+    if not v.get('waktu_lapor'):
+        errors.append('Waktu Laporan Diterima wajib diisi.')
+
+    # Waktu Siap & Waktu Tempuh wajib diisi HANYA kalau operasi ini akan
+    # berstatus "Dilaksanakan" (Waktu Berangkat atau Waktu Tiba sudah diisi --
+    # dihitung ulang di bawah sebagai `dilaksanakan`, TAPI dicek lebih awal di
+    # sini juga karena dua field ini divalidasi sebelum baris itu). Kalau
+    # "Tidak Dilaksanakan" boleh tetap kosong -- cocok dengan ~3 baris data
+    # historis berstatus itu yang memang tidak punya nilai ini sama sekali.
+    dilaksanakan_awal = bool(body.get('waktu_berangkat') or body.get('waktu_tiba'))
+    v['waktu_siap'] = as_float('waktu_siap', 0, None, 'Waktu Siap', required=dilaksanakan_awal)
+    v['waktu_tempuh_menit'] = as_float('waktu_tempuh_menit', 0, None, 'Waktu Tempuh', required=dilaksanakan_awal)
     v['rentang_waktu'] = as_float('rentang_waktu', 0, None, 'Rentang Waktu')  # kolom legacy (menit)
     v['jarak'] = text('jarak', max_len=64)  # kolom legacy, mis. "66.2 Km"
     v['waktu_tempuh'] = text('waktu_tempuh', max_len=64)  # kolom legacy, mis. "82 Menit"
@@ -346,17 +509,47 @@ def _next_no_urut(cur):
 @admin_bp.route('/operasi', methods=['GET'])
 @login_required
 def admin_operasi_list():
+    """Dulu selalu LIMIT 1000 tanpa filter -- makin banyak data historis makin
+    susah cari satu kejadian spesifik lewat tabel "Data Tersimpan". Sekarang
+    dukung pencarian bebas teks (?q=...) di kategori/klasifikasi/wilayah/lokasi/ID,
+    plus pagination (?page=&limit=) supaya tabelnya tetap ringan dimuat."""
+    q = (request.args.get('q') or '').strip()
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        limit = int(request.args.get('limit', 50))
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(limit, 200))
+    offset = (page - 1) * limit
+
+    where_sql = ''
+    params = []
+    if q:
+        where_sql = """WHERE (kategori LIKE %s OR kategori_kejadian LIKE %s OR wilayah_mapped LIKE %s
+                              OR posisi_koordinat_area LIKE %s OR no_urut = %s)"""
+        like = f"%{q}%"
+        id_match = int(q) if q.isdigit() else -1
+        params = [like, like, like, like, id_match]
+
+    total_row = query_one(f"SELECT COUNT(*) AS total FROM kejadian_sar {where_sql}", params)
+    total = total_row['total'] if total_row else 0
+
     rows = query_all(
-        """SELECT no_urut AS id_operasi, waktu_kejadian,
+        f"""SELECT no_urut AS id_operasi, waktu_kejadian,
                   kategori AS nama_kategori, kategori_kejadian AS nama_klasifikasi,
                   posisi_koordinat_area AS lokasi_kejadian_deskripsi,
                   wilayah_mapped, status_operasi,
                   pob, s_org AS jumlah_selamat, md_org AS jumlah_meninggal, h_org AS jumlah_hilang
            FROM kejadian_sar
+           {where_sql}
            ORDER BY waktu_kejadian DESC, no_urut DESC
-           LIMIT 1000"""
+           LIMIT %s OFFSET %s""",
+        params + [limit, offset],
     )
-    return ok(rows)
+    return ok({'rows': rows, 'total': total, 'page': page, 'limit': limit, 'total_halaman': max(1, (total + limit - 1) // limit)})
 
 
 @admin_bp.route('/operasi/<int:id_operasi>', methods=['GET'])

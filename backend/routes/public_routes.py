@@ -111,15 +111,23 @@ def kpi():
 
 @public_bp.route('/operasi')
 def operasi_list():
+    # PENTING (PII): kolom `jenis_kecelakaan` dan `lokasi_ditemukan` dari data historis
+    # SERING berisi nama lengkap, usia, dan alamat sekelurahan korban/penyintas yang
+    # diketik bebas oleh petugas lapangan (mis. "Nama Muhammad Adi Kurniawan Usia 31 Thn
+    # Alamat Jl...") -- BUKAN narasi bersih. Dua kolom itu SENGAJA TIDAK disertakan di
+    # endpoint publik ini (dan memang tidak dipakai di frontend manapun -- cek
+    # static/js/dashboard.js, tidak ada referensi ke narasi_kejadian /
+    # lokasi_ditemukan_deskripsi). Detail lengkap termasuk dua kolom ini tetap tersedia
+    # lewat endpoint admin (GET /api/admin/operasi/:id) yang wajib login.
+    # `posisi_koordinat_area` aman disertakan -- sudah dicek tidak mengandung pola
+    # "Nama" di seluruh data historis (isinya deskripsi lokasi/radial/jarak saja).
     where_sql, params = build_filters()
     rows = query_all(
         f"""SELECT no_urut AS id_operasi, waktu_kejadian, tahun, bulan_angka AS bulan,
                    kategori AS nama_kategori,
                    kategori_kejadian AS nama_klasifikasi,
-                   jenis_kecelakaan AS narasi_kejadian,
                    posisi_koordinat_area AS lokasi_kejadian_deskripsi,
                    latitude_lkk AS lokasi_kejadian_lat, longitude_lkk AS lokasi_kejadian_lon,
-                   lokasi_ditemukan AS lokasi_ditemukan_deskripsi,
                    latitude_ditemukan AS lokasi_ditemukan_lat, longitude_ditemukan AS lokasi_ditemukan_lon,
                    status_operasi,
                    wilayah_mapped,
@@ -259,19 +267,12 @@ def beban_wilayah():
     return ok(hasil)
 
 
-@public_bp.route('/sumber-berita')
-def sumber_berita():
-    where_sql, params = build_filters()
-    rows = query_all(
-        f"""SELECT sumber_berita AS nama_sumber, COUNT(*) AS jumlah
-            FROM kejadian_sar
-            WHERE 1=1 {where_sql}
-            GROUP BY sumber_berita
-            ORDER BY jumlah DESC""",
-        params,
-    )
-    return ok(rows)
-
+# PENTING (PII): endpoint /sumber-berita DIPINDAH ke admin_routes.py (wajib login).
+# Kolom `sumber_berita` di data historis berisi nama & nomor HP pribadi pelapor yang
+# diketik bebas oleh petugas (mis. "Bpk Anang BPBD Pasuruan (0898xxxxxxx)") -- BUKAN
+# kategori bersih seperti "Masyarakat"/"Instansi". Endpoint ini sebelumnya publik &
+# tanpa login, padahal tidak pernah dipakai frontend manapun -- lihat catatan yang
+# sama di endpoint /operasi di atas.
 
 @public_bp.route('/waktu-kejadian')
 def waktu_kejadian():

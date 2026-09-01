@@ -79,7 +79,7 @@ const Api = {
   statusHasil: (f) => apiRequest(`/status-hasil${qs(f)}`),
   trenBulanan: (f) => apiRequest(`/tren-bulanan${qs(f)}`),
   bebanWilayah: (f) => apiRequest(`/beban-wilayah${qs(f)}`),
-  sumberBerita: (f) => apiRequest(`/sumber-berita${qs(f)}`),
+  sumberBerita: (f) => apiRequest(`/admin/sumber-berita${qs(f)}`, { auth: true }), // PII, wajib login
   waktuKejadian: (f) => apiRequest(`/waktu-kejadian${qs(f)}`),
   durasiOperasi: (f) => apiRequest(`/durasi-operasi${qs(f)}`),
   korbanAgregat: (f) => apiRequest(`/korban-agregat${qs(f)}`),
@@ -89,7 +89,7 @@ const Api = {
   adminLogin: (username, password) => apiRequest('/admin/login', { method: 'POST', body: { username, password }, auth: true }),
   adminLogout: () => apiRequest('/admin/logout', { method: 'POST', auth: true }),
   adminMe: () => apiRequest('/admin/me', { auth: true }),
-  adminOperasiList: () => apiRequest('/admin/operasi', { auth: true }),
+  adminOperasiList: (opt) => apiRequest(`/admin/operasi${qs(opt)}`, { auth: true }),
   adminOperasiDetail: (id) => apiRequest(`/admin/operasi/${id}`, { auth: true }),
   adminOperasiCreate: (payload) => apiRequest('/admin/operasi', { method: 'POST', body: payload, auth: true }),
   adminOperasiUpdate: (id, payload) => apiRequest(`/admin/operasi/${id}`, { method: 'PUT', body: payload, auth: true }),
@@ -101,4 +101,7 @@ const Api = {
     if (tahun) fd.append('tahun', tahun);
     return apiUpload('/admin/operasi/bulk/preview', fd);
   },
+  adminList: () => apiRequest('/admin/admins', { auth: true }),
+  adminCreate: (payload) => apiRequest('/admin/admins', { method: 'POST', body: payload, auth: true }),
+  adminSetStatus: (id, status) => apiRequest(`/admin/admins/${id}/status`, { method: 'PUT', body: { status }, auth: true }),
 };
