@@ -1,27 +1,15 @@
-
 import time
 from collections import defaultdict, deque
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify, session
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 from auth import verify_admin_login, login_required
 from db import get_connection, query_all, query_one
 from services.excel_import_service import parse_workbook
 from routes.public_routes import build_filters
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
-
-# ============================================================
-# CATATAN
-# ============================================================
-# Backend admin ini ditulis untuk skema flat `kejadian_sar` yang benar-benar
-# dipakai di database (lihat routes/public_routes.py untuk catatan migrasi
-# skema yang sama). Versi sebelumnya dari file ini masih menulis ke tabel
-# normalized (operasi_sar, korban, ref_kategori, dst) yang TIDAK ADA di
-# database -- setiap create/update/delete akan selalu gagal. Semua endpoint
-# di bawah sudah disesuaikan supaya konsisten dengan struktur kejadian_sar
-# dan dengan payload yang dikirim frontend (lihat static/js/dashboard.js).
 
 BULAN_NAMA = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -37,25 +25,12 @@ def fail(message, status=400):
     return jsonify({'success': False, 'data': None, 'message': message}), status
 
 
-# ============================================================
-# AUTH
-# ============================================================
-# Rate limiting percobaan login (anti brute-force). Disimpan in-memory (dict
-# per-proses), BUKAN di database/Redis -- cukup untuk deployment 1 proses
-# seperti `python app.py` / 1 worker gunicorn yang dipakai project ini
-# sekarang. Kalau nanti dijalankan dengan >1 worker/proses, counter ini tidak
-# akan sinkron antar proses (masing-masing punya limit sendiri-sendiri) --
-# butuh Redis/DB kalau mau scale ke situasi itu.
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 15 * 60  # 15 menit
 _login_attempts = defaultdict(deque)  # key -> deque[timestamp percobaan gagal]
 
 
 def _login_rate_limit_key(username):
-    # Kombinasi IP + username: brute-force ke SATU akun (username tetap,
-    # password diacak) tetap kena limit walau dari banyak IP berbeda tidak
-    # tercakup di sini -- tapi kombinasi ini sudah cukup untuk kasus umum
-    # (satu penyerang dari satu sumber mencoba banyak password).
     ip = request.headers.get('X-Forwarded-For', request.remote_addr) or 'unknown'
     return f"{ip.split(',')[0].strip()}:{username.lower()}"
 
@@ -122,12 +97,56 @@ def me():
     return ok(admin)
 
 
-# ============================================================
-# KELOLA AKUN ADMIN
-# ============================================================
-# Sengaja tidak ada endpoint hapus akun -- nonaktifkan (status='nonaktif') supaya
-# histori tetap konsisten, konsisten dengan pola "no delete" yang sama dipakai di
-# admin table (kolom status sudah ada dari schema.sql awal, cuma belum ada UI-nya).
+
+@admin_bp.route('/me/password', methods=['PUT'])
+@login_required
+def change_own_password():
+
+    body = request.get_json(silent=True) or {}
+    password_lama = body.get('password_lama') or ''
+    password_baru = body.get('password_baru') or ''
+    konfirmasi = body.get('konfirmasi_password_baru') or ''
+
+    errors = []
+    if not password_lama:
+        errors.append('Password lama wajib diisi.')
+    if not password_baru:
+        errors.append('Password baru wajib diisi.')
+    elif len(password_baru) < 8:
+        errors.append('Password baru minimal 8 karakter.')
+    if password_baru and konfirmasi != password_baru:
+        errors.append('Konfirmasi password baru tidak cocok.')
+    if errors:
+        return fail(' '.join(errors), 400)
+
+    admin = query_one(
+        "SELECT id_admin, password FROM admin WHERE id_admin = %s",
+        (session['id_admin'],),
+    )
+    if not admin:
+        session.clear()
+        return fail('Sesi tidak valid.', 401)
+    if not check_password_hash(admin['password'], password_lama):
+        return fail('Password lama salah.', 401)
+    if password_lama == password_baru:
+        return fail('Password baru tidak boleh sama dengan password lama.', 400)
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE admin SET password = %s WHERE id_admin = %s",
+                (generate_password_hash(password_baru), session['id_admin']),
+            )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return fail(f'Gagal mengganti password: {e}', 500)
+    finally:
+        conn.close()
+
+    return ok(None, 'Password berhasil diganti.')
+
 
 @admin_bp.route('/admins', methods=['GET'])
 @login_required

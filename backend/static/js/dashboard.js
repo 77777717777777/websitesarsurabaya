@@ -1,11 +1,3 @@
-/* =====================================================================
-   SAR Dashboard — frontend logic
-   Semua data numerik berasal dari API backend Flask (lihat js/api.js).
-   Peta memakai transformasi affine sederhana (lat/lon asli -> persen
-   kanvas 800x400) yang dikalibrasi dari koordinat referensi 8 Pos/Unit
-   Siaga -- peta tetap skematik/ilustratif, bukan proyeksi presisi.
-   ===================================================================== */
-
 const MONTHS_FULL = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
 const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 const CAT_COLORS = ['#FFE066','#FFB020','#FF7A1A','#D6480F','#7A2E0E'];
@@ -60,15 +52,9 @@ const ADMIN_KLASIFIKASI_OPTIONS = [
   'Lainnya',
 ];
 
-/* Tahun kalender berjalan belum tentu punya data 12 bulan penuh -- tandai dengan
-   asterisk di semua tempat yang menampilkan tahun sebagai teks ke user (BUKAN untuk
-   logika filter/kalkulasi, hanya tampilan). */
-function isPartialYear(year){
-  return year === new Date().getFullYear();
-}
 function formatTahunLabel(year){
   if (year == null) return 'Semua Tahun';
-  return isPartialYear(year) ? year + '*' : String(year);
+  return String(year);
 }
 
 /* ================= GEO TRANSFORM (kalibrasi affine dari 8 titik referensi) ================= */
@@ -1183,25 +1169,75 @@ async function loadRefData(){
   state.activeWilayah = WILAYAH_LIST.map(w=>w.id);
 }
 
+function toggleSidebar(){
+  const aside = document.getElementById('app-sidebar');
+  if (!aside) return;
+  const collapsed = aside.classList.toggle('collapsed');
+  try { localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); } catch(e){}
+}
+
+/* Layar sempit (mis. jendela di-split / dashboard dibuka di setengah layar)
+   otomatis membuat sidebar collapse supaya konten tidak terlalu sesak --
+   preferensi manual (localStorage) tetap dipakai selama lebar layar masih
+   di atas ambang batas ini. */
+const SIDEBAR_AUTO_COLLAPSE_BREAKPOINT = 1000; // px
+
+function applySidebarResponsive(){
+  const aside = document.getElementById('app-sidebar');
+  if (!aside) return;
+  if (window.innerWidth <= SIDEBAR_AUTO_COLLAPSE_BREAKPOINT){
+    aside.classList.add('collapsed');
+  } else {
+    let saved = null;
+    try { saved = localStorage.getItem('sidebarCollapsed'); } catch(e){}
+    aside.classList.toggle('collapsed', saved === '1');
+  }
+}
+
+function initSidebarToggle(){
+  applySidebarResponsive();
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(applySidebarResponsive, 150);
+  });
+}
+
+/* Hitung ulang YEARS_AVAILABLE dari data operasi yang BENAR-BENAR ada di
+   database saat ini. Dipakai baik saat load awal (bootstrap) maupun setiap
+   kali ada data baru masuk (input manual / bulk import Excel) -- sebelumnya
+   input manual cuma refresh daftar tahun kalau tahun FILTER yang lagi aktif
+   (state.year) belum ada di YEARS_AVAILABLE, padahal yang perlu dicek adalah
+   tahun dari DATA BARU yang baru disimpan, bukan tahun filter yang sedang
+   dipilih -- itu sebabnya nambah data tahun baru (mis. 2027) sebelumnya tidak
+   langsung muncul di filter Tahun sampai halaman di-refresh manual. Bulk
+   import Excel malah sama sekali tidak refresh daftar tahun. Sekarang
+   dipanggil tanpa syarat setiap selesai simpan data, jadi tahun baru apapun
+   langsung muncul di filter tanpa perlu reload halaman. */
+async function refreshYearsAvailable(){
+  const allOps = await Api.operasi({});
+  const yearsWithData = Array.from(new Set((allOps.data||[]).map(o=>o.tahun))).sort((a,b)=>a-b);
+
+  // Tahun berjalan tetap dimunculkan di filter Tahun walau belum ada satupun
+  // baris data tercatat -- supaya dashboard bisa dibuka dalam kondisi
+  // "kosong" utk tahun berjalan, bukan cuma bisa lihat tahun2 lama yang sudah ada datanya.
+  const currentYear = new Date().getFullYear();
+  YEARS_AVAILABLE = yearsWithData.includes(currentYear)
+    ? [...yearsWithData]
+    : [...yearsWithData, currentYear].sort((a,b)=>a-b);
+
+  buildTahunPanel();
+  return yearsWithData;
+}
+
 async function bootstrap(){
   try {
-    const [, allOps] = await Promise.all([ loadRefData(), Api.operasi({}) ]);
-    const years = Array.from(new Set((allOps.data||[]).map(o=>o.tahun))).sort((a,b)=>a-b);
-    YEARS_AVAILABLE = years.length ? years : [new Date().getFullYear()];
-
-    // Tahun berjalan (2026 dst) tetap dimunculkan di filter Tahun walau belum ada
-    // satupun baris data tercatat -- supaya dashboard bisa dibuka dalam kondisi
-    // "kosong" utk tahun berjalan, bukan cuma bisa lihat tahun2 lama yang sudah ada datanya.
-    const currentYear = new Date().getFullYear();
-    if (!YEARS_AVAILABLE.includes(currentYear)) {
-      YEARS_AVAILABLE.push(currentYear);
-      YEARS_AVAILABLE.sort((a,b)=>a-b);
-    }
+    const [, yearsWithData] = await Promise.all([ loadRefData(), refreshYearsAvailable() ]);
 
     // Default tahun yang ditampilkan saat pertama buka dashboard tetap tahun
     // terakhir yang ADA datanya (bukan otomatis lompat ke tahun berjalan yang
     // masih kosong) -- supaya user tidak disambut dashboard kosong pas pertama buka.
-    const latestYearWithData = years.length ? years[years.length - 1] : YEARS_AVAILABLE[YEARS_AVAILABLE.length - 1];
+    const latestYearWithData = yearsWithData.length ? yearsWithData[yearsWithData.length - 1] : YEARS_AVAILABLE[YEARS_AVAILABLE.length - 1];
     state.year = latestYearWithData;
     state.activeWilayah = computeDefaultActiveWilayah(state.year);
   } catch (err) {
@@ -1510,8 +1546,8 @@ function generateRekomendasiZona(z){
   } else {
     base = `Kejadian terbanyak berupa ${domLabel.toLowerCase()}. Perlu koordinasi penanganan untuk jenis kejadian ini di wilayah ${z.wilayah}.`;
   }
-  const urgency = z.kejadian >= 20 ? ' Jumlah kejadian tergolong tinggi, sehingga perlu dipertimbangkan untuk penambahan unit siaga.'
-    : z.kejadian >= 10 ? ' Jumlah kejadian tergolong sedang, sehingga perlu memastikan personel dan peralatan tetap siap.'
+  const urgency = z.kejadian >= 20 ? ' Jumlah kejadian tergolong tinggi — pertimbangkan penambahan unit siaga.'
+    : z.kejadian >= 10 ? ' Jumlah kejadian tergolong sedang — pastikan personel dan peralatan tetap siap.'
     : '';
   return base + urgency;
 }
@@ -2121,11 +2157,7 @@ async function confirmSaveAdminForm(){
     showAdminToast('Data kejadian berhasil disimpan.');
     resetAdminForm();
     await renderAdminOpsTable();
-    if (YEARS_AVAILABLE.length === 0 || !YEARS_AVAILABLE.includes(state.year)) {
-      const allOps = await Api.operasi({});
-      YEARS_AVAILABLE = Array.from(new Set(allOps.data.map(o => o.tahun))).sort((a, b) => a - b);
-      buildTahunPanel();
-    }
+    await refreshYearsAvailable();
     if (state.page === 'beranda') render();
   } catch (err) {
     showAdminToast(err.message, true);
@@ -2255,6 +2287,41 @@ async function onCreateAdmin(){
     $('newadmin-f-nama').value = '';
     $('newadmin-f-password').value = '';
     renderAdminAccountsTab();
+  } catch (err) {
+    errBox.textContent = err.message;
+    errBox.style.display = 'block';
+  }
+}
+
+async function onChangeOwnPassword(){
+  const passwordLama = $('chpw-f-lama').value;
+  const passwordBaru = $('chpw-f-baru').value;
+  const konfirmasi = $('chpw-f-konfirmasi').value;
+  const errBox = $('chpw-form-error');
+  errBox.style.display = 'none';
+
+  const errors = [];
+  if (!passwordLama) errors.push('Password lama wajib diisi.');
+  if (!passwordBaru) errors.push('Password baru wajib diisi.');
+  else if (passwordBaru.length < 8) errors.push('Password baru minimal 8 karakter.');
+  if (passwordBaru && konfirmasi !== passwordBaru) errors.push('Konfirmasi password baru tidak cocok.');
+  if (errors.length){
+    errBox.innerHTML = errors.map(e => `&bull; ${e}`).join('<br>');
+    errBox.style.display = 'block';
+    return;
+  }
+
+  try {
+    const res = await Api.adminChangePassword(passwordLama, passwordBaru, konfirmasi);
+    if (!res.success){
+      errBox.textContent = res.message || 'Gagal mengganti password.';
+      errBox.style.display = 'block';
+      return;
+    }
+    showAdminToast('Password berhasil diganti.');
+    $('chpw-f-lama').value = '';
+    $('chpw-f-baru').value = '';
+    $('chpw-f-konfirmasi').value = '';
   } catch (err) {
     errBox.textContent = err.message;
     errBox.style.display = 'block';
@@ -2411,6 +2478,7 @@ async function onImportExcelRows(){
     showAdminToast(`Impor selesai: ${d.berhasil} berhasil, ${d.gagal} gagal.`);
     $('excel-import-btn').style.display = 'none';
     await renderAdminOpsTable();
+    await refreshYearsAvailable();
     if (state.page === 'beranda') render();
   } catch (err) {
     showAdminToast(err.message, true);
@@ -2483,4 +2551,5 @@ async function renderFsJarakTemu(){
 }
 
 /* ================= INIT ================= */
+document.addEventListener('DOMContentLoaded', initSidebarToggle);
 document.addEventListener('DOMContentLoaded', bootstrap);

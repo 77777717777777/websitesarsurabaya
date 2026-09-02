@@ -65,7 +65,19 @@
     background:linear-gradient(180deg, rgba(26,18,12,.55), rgba(14,10,8,.65));
     backdrop-filter:blur(var(--blur)); -webkit-backdrop-filter:blur(var(--blur));
     border-right:1px solid var(--glass-brd);
+    transition:width .18s ease;
   }
+  /* Sidebar diciutkan (klik tombol hamburger di topbar) -- cuma ikon yang
+     kelihatan, label teks & judul disembunyikan. Lebar 64px cukup buat ikon
+     15px + padding tanpa kepotong. State-nya disimpan di localStorage lewat
+     toggleSidebar()/initSidebarToggle() di dashboard.js, supaya preferensi
+     ciut/tidaknya sidebar tetap kebawa walau halaman di-refresh. */
+  aside.collapsed{ width:64px; }
+  aside.collapsed .brand{ justify-content:center; padding:20px 8px; }
+  aside.collapsed .brand-text{ display:none; }
+  aside.collapsed .nav-eyebrow{ display:none; }
+  aside.collapsed .nav-item{ justify-content:center; padding:9px 0; }
+  aside.collapsed .nav-label{ display:none; }
   .brand{display:flex; align-items:center; gap:11px; padding:20px 16px; border-bottom:1px solid var(--line);}
   .brand .mark{
     width:38px; height:38px; border-radius:50%; flex-shrink:0; overflow:hidden;
@@ -73,11 +85,14 @@
   }
   .brand .mark img{width:100%; height:100%; object-fit:contain;}
   .brand h1{font-family:var(--display); font-weight:700; font-size:13.5px; margin:0; letter-spacing:.04em;}
-  .brand .url{font-family:var(--mono); font-size:10px; color:var(--text-mid); margin-top:2px;}  nav{flex:1; padding:16px 10px 0; overflow-y:auto;}
+  .brand .url{font-family:var(--mono); font-size:10px; color:var(--text-mid); margin-top:2px;}
+  nav{flex:1; padding:16px 10px 0; overflow-y:auto;}
   .nav-eyebrow{font-family:var(--display); font-size:9px; font-weight:600; letter-spacing:.1em; color:var(--text-faint); text-transform:uppercase; padding:0 10px; margin-bottom:8px;}
   .nav-item{display:flex; align-items:center; gap:10px; width:100%; padding:9px 10px; border-radius:var(--r); background:transparent; border:none; cursor:pointer; color:var(--text-mid); font-size:12.5px; text-align:left; margin-bottom:3px; transition:background .15s, color .15s;}
   .nav-item svg{opacity:.65; flex-shrink:0; width:15px; height:15px;}
   .nav-item:hover{color:var(--text-hi); background:rgba(255,122,26,.08);}
+  .sidebar-toggle-btn{ padding:6px 9px; }
+  .sidebar-toggle-btn svg{ width:15px; height:15px; }
   .nav-item.active{
     color:var(--text-hi); font-weight:600;
     background:linear-gradient(90deg, rgba(255,106,15,.22), rgba(255,106,15,.04));
@@ -694,53 +709,56 @@
 </head>
 <body>
 <div class="app">
-  <aside>
+  <aside id="app-sidebar">
     <div class="brand">
       <div class="mark">
         <img src="https://sarsurabaya.id/img/LogoSAR.png" alt="Logo SAR">
       </div>
-      <div>
+      <div class="brand-text">
         <h1>GEOSPASIAL</h1>
         <div class="url">SAR SURABAYA</div>
       </div>
     </div>
     <nav>
       <div class="nav-eyebrow">Navigasi</div>
-      <button class="nav-item active" data-page="beranda" onclick="goPage('beranda')">
+      <button class="nav-item active" data-page="beranda" onclick="goPage('beranda')" title="Beranda">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg>
-        Beranda
+        <span class="nav-label">Beranda</span>
       </button>
-      <button class="nav-item" data-page="peta" onclick="goPage('peta')">
+      <button class="nav-item" data-page="peta" onclick="goPage('peta')" title="Peta Sebaran">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
-        Peta Sebaran
+        <span class="nav-label">Peta Sebaran</span>
       </button>
-      <button class="nav-item" data-page="zona" onclick="goPage('zona')">
+      <button class="nav-item" data-page="zona" onclick="goPage('zona')" title="Zona Prioritas">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        Zona Prioritas
+        <span class="nav-label">Zona Prioritas</span>
       </button>
-      <button class="nav-item" data-page="tren" onclick="goPage('tren')">
+      <button class="nav-item" data-page="tren" onclick="goPage('tren')" title="Tren &amp; Statistik">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-        Tren &amp; Statistik
+        <span class="nav-label">Tren &amp; Statistik</span>
       </button>
-      <button class="nav-item" data-page="prediksi" onclick="goPage('prediksi')">
+      <button class="nav-item" data-page="prediksi" onclick="goPage('prediksi')" title="Prediksi Sebaran Lokasi">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="9"/>
           <circle cx="12" cy="12" r="5"/>
           <circle cx="12" cy="12" r="1"/>
         </svg>
-        Prediksi Sebaran Lokasi
+        <span class="nav-label">Prediksi Sebaran Lokasi</span>
       </button>
       <div class="nav-divider" id="admin-nav-divider" style="display:none;"></div>
-      <button class="nav-item" id="admin-nav-item" data-page="admin-input" onclick="goPage('admin-input')" style="display:none;">
+      <button class="nav-item" id="admin-nav-item" data-page="admin-input" onclick="goPage('admin-input')" style="display:none;" title="Input Data Operasi">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-        Input Data Operasi
+        <span class="nav-label">Input Data Operasi</span>
       </button>
     </nav>
 
   </aside>
   <div class="main">
     <div class="topbar">
-      <div style="display:flex;align-items:baseline;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn-ghost clickable sidebar-toggle-btn" onclick="toggleSidebar()" title="Sembunyikan/tampilkan menu">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
         <h2 id="page-title">Beranda</h2>
       </div>
       <div class="topbar-right">
@@ -1051,13 +1069,14 @@
                   </div>
                 </div>
                 <div style="margin-top:12px;">
-                  <label class="admin-map-label">Mini Map Picker &mdash; klik pada peta (atau geser pin) untuk mengisi koordinat</label>
+                  <label class="admin-map-label">Mini Map Picker &mdash; klik pada peta (atau geser pin) untuk mengisi koordinat otomatis</label>
                   <div class="map-wrap admin-map-picker" id="admin-map-picker"></div>
                 </div>
                 <div class="admin-field-wide" style="margin-top:14px;">
                   <label class="admin-map-label">Wilayah Terdampak <span class="req">*</span></label>
                   <div class="admin-checkbox-grid" id="admin-wilayah-checkgrid"></div>
                   <input type="text" id="admin-f-wilayah-lain" class="admin-input" style="margin-top:8px;" placeholder="Wilayah lain di luar daftar (pisahkan dengan koma)">
+                  <div class="field-hint">Data tanpa wilayah tidak akan muncul pada filter dashboard, jadi pilih minimal satu wilayah.</div>
                 </div>
               </div>
 
@@ -1082,12 +1101,13 @@
                     <input type="number" min="0" id="admin-f-h" class="admin-input" value="0" oninput="validateKorbanVsPob()">
                   </div>
                 </div>
+                <div class="field-hint" id="admin-korban-hint">Total korban (S + MD + H) tidak boleh melebihi POB.</div>
               </div>
 
               <!-- D: Detail tambahan -->
               <details class="admin-details" open>
                 <summary class="admin-section-title">Detail Tambahan &mdash; sumber laporan, waktu pelaksanaan, lokasi ditemukan, kendala, dll.</summary>
-                <div class="field-hint" style="margin-top:6px;">Field bertanda <span class="req">*</span> wajib diisi.</div>
+                <div class="field-hint" style="margin-top:6px;">Field bertanda <span class="req">*</span> wajib diisi. Field bertanda <span class="req">*</span><span style="color:var(--text-faint);">(jika dilaksanakan)</span> wajib diisi hanya kalau Waktu Berangkat atau Waktu Tiba di Lokasi sudah diisi &mdash; lihat status di bagian paling bawah form.</div>
                 <div class="admin-grid" style="margin-top:12px;">
                   <div class="admin-field">
                     <label>Sumber Laporan</label>
@@ -1165,7 +1185,7 @@
               <div class="admin-section">
                 <div class="admin-section-title">Status Operasi</div>
                 <div id="admin-status-indicator" class="admin-status-indicator"></div>
-                <div class="field-hint">Dihitung otomatis dari kelengkapan Waktu Berangkat &amp; Waktu Tiba di Lokasi pada bagian "Detail Tambahan" di atas</div>
+                <div class="field-hint">Dihitung otomatis dari kelengkapan Waktu Berangkat &amp; Waktu Tiba di Lokasi pada bagian "Detail Tambahan" di atas &mdash; bukan field yang diisi manual.</div>
               </div>
 
               <div class="admin-error-box" id="admin-form-error" style="display:none;"></div>
@@ -1184,7 +1204,7 @@
                 <div class="admin-section-title">Upload File Excel</div>
                 <div class="field-hint" style="margin-bottom:12px;">
                   Unggah laporan bulanan/tahunan dalam format asli (satu sheet per bulan, file <code>.xlsx</code>).
-                  klik <b>Proses &amp; Validasi</b> setelah memilih file
+                  File dibaca &amp; diekstrak langsung di server -- klik <b>Proses &amp; Validasi</b> setelah memilih file
                   untuk melihat pratinjau &amp; hasil pemeriksaan tiap baris sebelum diimpor ke database.
                 </div>
 
@@ -1257,6 +1277,28 @@
           <!-- ===== TAB 4: KELOLA ADMIN ===== -->
           <div class="admin-tab-panel" id="admin-tab-admins">
             <div class="card-body admin-form-body">
+              <div class="admin-section">
+                <div class="admin-section-title">Ganti Password Saya</div>
+                <div class="admin-grid">
+                  <div class="admin-field">
+                    <label>Password Lama <span class="req">*</span></label>
+                    <input type="password" id="chpw-f-lama" class="admin-input" placeholder="Password saat ini">
+                  </div>
+                  <div class="admin-field">
+                    <label>Password Baru <span class="req">*</span></label>
+                    <input type="password" id="chpw-f-baru" class="admin-input" placeholder="Minimum 8 karakter">
+                  </div>
+                  <div class="admin-field">
+                    <label>Konfirmasi Password Baru <span class="req">*</span></label>
+                    <input type="password" id="chpw-f-konfirmasi" class="admin-input" placeholder="Ulangi password baru">
+                  </div>
+                </div>
+                <div class="admin-error-box" id="chpw-form-error" style="display:none; margin-top:12px;"></div>
+                <div class="admin-form-actions" style="margin-top:16px;">
+                  <button class="admin-btn-primary" onclick="onChangeOwnPassword()">Ganti Password</button>
+                </div>
+              </div>
+
               <div class="admin-section" style="border-bottom:none; padding-bottom:0;">
                 <div class="admin-section-title">Tambah Akun Admin Baru</div>
                 <div class="admin-grid">

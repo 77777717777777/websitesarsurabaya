@@ -1,24 +1,4 @@
-"""
-Parsing file Excel laporan kejadian SAR (format asli laporan bulanan/tahunan)
-menjadi baris-baris siap divalidasi oleh normalize_payload() di
-routes/admin_routes.py.
 
-Logika di file ini adalah PORTING LANGSUNG dari script ETL Python yang sudah
-ditulis, dipakai, dan diuji sendiri oleh pengguna (notebook etl.ipynb) untuk
-mengubah laporan mentah (satu sheet per bulan, berisi baris kategori + baris
-bernomor per-kejadian + baris lanjutan teks) menjadi data flat kejadian_sar.
-Fungsi-fungsi di bawah sengaja dibuat semirip mungkin dengan versi aslinya
-(nama fungsi & urutan logika dipertahankan) supaya mudah dicocokkan/diaudit
-terhadap notebook sumbernya kalau ada perbedaan hasil.
-
-Sumber format mentah TIDAK punya header kolom sederhana per field -- setiap
-sheet adalah satu bulan, dengan baris kategori ("KECELAKAAN KAPAL", dst),
-baris kejadian bernomor (1., 2., dst di kolom A), dan kadang baris lanjutan
-teks tanpa nomor (kolom instansi/personel/lokasi ditemukan yang isinya
-panjang, disambung ke baris di bawahnya). Makanya parsing dilakukan baris
-demi baris dengan aturan yang sama seperti script aslinya, BUKAN pencocokan
-nama header seperti pendekatan awal (client-side, sudah digantikan file ini).
-"""
 import re
 from datetime import datetime, timedelta
 
@@ -27,9 +7,7 @@ from geopy.distance import distance
 from geopy.point import Point
 
 
-# ============================================================
-# 1. Konstanta (persis dari script ETL asli pengguna)
-# ============================================================
+# 1. Konstanta 
 
 MONTHS = [
     "JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI",
@@ -106,9 +84,7 @@ KATEGORI_MAP = [
 ]
 
 
-# ============================================================
-# 2. Helper dasar baca sel & teks (persis dari script asli)
-# ============================================================
+# 2. Helper dasar baca sel & teks
 
 def cellval(ws, row, col):
     v = ws.cell(row=row, column=col).value
@@ -364,9 +340,7 @@ def hitung_koordinat_desimal(teks, jarak_km=0.0):
     return {"tipe": "TIDAK_DIKENAL", "lat": None, "lon": None}
 
 
-# ============================================================
 # 4. Standardisasi waktu (porting dari standarisasi_waktu, cell 1 notebook)
-# ============================================================
 
 def standarisasi_waktu(teks, tahun_default, bulan_sheet_angka=None):
     """Ubah teks waktu mentah ('1231 1400 G' / '1 Januari 2023 Pukul 14.00' /
@@ -408,13 +382,6 @@ def standarisasi_waktu(teks, tahun_default, bulan_sheet_angka=None):
         except ValueError:
             return s
 
-    # Pola sandi waktu "MMDD HHMM G" (mis. '1231 1400 G'). Dibuat sedikit
-    # lebih longgar dari catatan aslinya di notebook -- data sungguhan
-    # kadang salah ketik pemisahnya (mis. '0321`1540 G' pakai backtick,
-    # bukan spasi) atau lupa nulis huruf 'G' di akhir (mis. '0903 2100').
-    # Bagian 'G' & jumlah spasi dibuat opsional/fleksibel supaya kasus itu
-    # tetap terbaca, tapi pola 4+4 digit-nya sendiri tetap wajib persis --
-    # jadi tidak akan salah tangkap teks lain yang kebetulan ada angkanya.
     pola_sandi = r"(\d{2})(\d{2})[^0-9A-Z]{0,3}(\d{2})(\d{2})\s*G?"
     match_sandi = re.search(pola_sandi, teks_u)
 
@@ -450,9 +417,7 @@ def _to_dt(std_str):
         return None
 
 
-# ============================================================
-# 5. Turunan lain (porting dari cell 44/48 notebook)
-# ============================================================
+# 5. Turunan lain
 
 def cari_wilayah(teks):
     teks_lower = str(teks or '').lower()
@@ -498,9 +463,8 @@ def hitung_rentang_menit(waktu_lapor_std, waktu_kejadian_std):
     return total_menit, False
 
 
-# ============================================================
 # 6. Parsing sheet bulanan (porting dari parse_month_sheet)
-# ============================================================
+
 
 def parse_month_sheet(ws, tahun):
     bulan = ws.title.strip().upper()
@@ -575,12 +539,7 @@ def parse_month_sheet(ws, tahun):
     return records
 
 
-# ============================================================
-# 7. Rakit satu record hasil parse_month_sheet -> payload kejadian_sar
-#    (bentuk field ini SAMA PERSIS dengan yang diharapkan normalize_payload
-#    di routes/admin_routes.py, termasuk kolom "legacy" teks yang juga
-#    dipakai data historis di database).
-# ============================================================
+# 7. Rakit satu record hasil parse_month_sheet
 
 def build_payload_row(rec):
     tahun = rec["tahun"]
@@ -688,9 +647,7 @@ def build_payload_row(rec):
     return payload
 
 
-# ============================================================
 # 8. Entry point: baca workbook -> daftar payload
-# ============================================================
 
 def parse_workbook(file_obj, tahun_default=None):
     """file_obj: file-like (mis. request.files['file'].stream) berisi .xlsx.

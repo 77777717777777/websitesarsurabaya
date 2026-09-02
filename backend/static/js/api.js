@@ -1,10 +1,3 @@
-
-/* ================= API CLIENT =================
-   Wrapper tipis di atas fetch() untuk semua endpoint backend Flask.
-   Frontend disajikan oleh Flask sendiri (backend/static), jadi API selalu
-   berada di origin yang sama -- cukup path relatif, tidak perlu base URL
-   terpisah atau CORS. Endpoint admin tetap kirim cookie sesi lewat
-   credentials:'include' (aman meski same-origin). */
 const API_BASE = '/api';
 
 async function apiRequest(path, { method = 'GET', body = null, auth = false } = {}) {
@@ -104,4 +97,9 @@ const Api = {
   adminList: () => apiRequest('/admin/admins', { auth: true }),
   adminCreate: (payload) => apiRequest('/admin/admins', { method: 'POST', body: payload, auth: true }),
   adminSetStatus: (id, status) => apiRequest(`/admin/admins/${id}/status`, { method: 'PUT', body: { status }, auth: true }),
+  adminChangePassword: (passwordLama, passwordBaru, konfirmasi) => apiRequest('/admin/me/password', {
+    method: 'PUT',
+    body: { password_lama: passwordLama, password_baru: passwordBaru, konfirmasi_password_baru: konfirmasi },
+    auth: true,
+  }),
 };
