@@ -1546,8 +1546,8 @@ function generateRekomendasiZona(z){
   } else {
     base = `Kejadian terbanyak berupa ${domLabel.toLowerCase()}. Perlu koordinasi penanganan untuk jenis kejadian ini di wilayah ${z.wilayah}.`;
   }
-  const urgency = z.kejadian >= 20 ? ' Jumlah kejadian tergolong tinggi — pertimbangkan penambahan unit siaga.'
-    : z.kejadian >= 10 ? ' Jumlah kejadian tergolong sedang — pastikan personel dan peralatan tetap siap.'
+  const urgency = z.kejadian >= 20 ? ' Jumlah kejadian tergolong tinggi, dapat dipertimbangkan penambahan unit siaga.'
+    : z.kejadian >= 10 ? ' Jumlah kejadian tergolong sedang, harus memastikan personel dan peralatan tetap siap.'
     : '';
   return base + urgency;
 }
